@@ -1,4 +1,4 @@
-Rk,Squad,Comp,Num_of_Players,Weekly_Wages,Annual_Wages,Pct_Estimated,Season,Weekly_Wages_EUR,Weekly_Wages_GBP,Weekly_Wages_USD,Annual_Wages_EUR,Annual_Wages_GBP,Annual_Wages_USD
+Rk,Squad,Comp,# of Players,Weekly Wages,Annual Wages,% Estimated,Season,Weekly Wages EUR,Weekly Wages GBP,Weekly Wages USD,Annual Wages EUR,Annual Wages GBP,Annual Wages USD
 1,Barcelona,La Liga,33,"€ 4,682,115 (£ 3,925,993, $4,771,599)","€ 243,470,000 (£ 204,151,634, $248,123,125)",100%,2017-2018,4682115.0,3925993.0,4771599.0,243470000.0,204151634.0,248123125.0
 2,Real Madrid,La Liga,33,"€ 3,949,904 (£ 3,312,027, $4,025,393)","€ 205,395,000 (£ 172,225,426, $209,320,446)",100%,2017-2018,3949904.0,3312027.0,4025393.0,205395000.0,172225426.0,209320446.0
 3,Paris S-G,Ligue 1,35,"€ 3,895,462 (£ 3,266,377, $3,969,910)","€ 202,564,000 (£ 169,851,608, $206,435,344)",100%,2017-2018,3895462.0,3266377.0,3969910.0,202564000.0,169851608.0,206435344.0
