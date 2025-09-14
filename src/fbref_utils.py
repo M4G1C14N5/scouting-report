@@ -86,6 +86,10 @@ def common_cleaning(df: pd.DataFrame) -> pd.DataFrame:
     if "Rk" in df.columns:
         df = df.drop(columns=["Rk"])
 
+    #added afterwards which is why order is thrown off. Let's call it 2.5
+    if "Matches" in df.columns:
+        df = df.drop(columns=["Matches"])
+
     # 3. Clean Nation column
     if "Nation" in df.columns:
         df["Nation"] = df["Nation"].astype(str).str.extract(r"([A-Z]{3})")
@@ -116,3 +120,4 @@ def common_cleaning(df: pd.DataFrame) -> pd.DataFrame:
             df[col] = df[col].astype("category")
 
     return df
+
