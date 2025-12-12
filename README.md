@@ -1,5 +1,40 @@
 # Scouting Report: Professional Football Analytics Platform
 
+## Table of Contents
+
+- [Project Overview](#project-overview)
+  - [Key Objectives](#key-objectives)
+- [Core Technologies](#core-technologies)
+  - [Data Collection & Web Scraping](#data-collection--web-scraping)
+  - [Data Processing & Analysis](#data-processing--analysis)
+  - [Visualization](#visualization)
+  - [Data Management](#data-management)
+- [Data Preparation and Visualization](#data-preparation-and-visualization)
+  - [Data Collection Pipeline](#data-collection-pipeline)
+  - [Data Cleaning and Transformation](#data-cleaning-and-transformation)
+  - [Visualization and Exploratory Data Analysis](#visualization-and-exploratory-data-analysis)
+- [Report Structure and Key Findings](#report-structure-and-key-findings)
+  - [Dataset Structure](#dataset-structure)
+  - [Player Role Clustering](#player-role-clustering)
+  - [Key Analytical Insights](#key-analytical-insights)
+  - [Output Deliverables](#output-deliverables)
+- [Project Structure](#project-structure)
+- [Technical Highlights](#technical-highlights)
+  - [Robust Error Handling](#robust-error-handling)
+  - [Scalable Architecture](#scalable-architecture)
+  - [Production-Ready Data Quality](#production-ready-data-quality)
+- [Future Enhancements](#future-enhancements)
+- [Dependencies](#dependencies)
+- [Development History](#development-history)
+  - [Phase 1: Initial Data Acquisition (August 2024)](#phase-1-initial-data-acquisition-august-2024)
+  - [Phase 2: Core Data Cleaning Pipeline (May-June 2025)](#phase-2-core-data-cleaning-pipeline-may-june-2025)
+  - [Phase 3: Advanced Analysis and Machine Learning (June 2025)](#phase-3-advanced-analysis-and-machine-learning-june-2025)
+  - [Phase 4: System Refinement and Data Expansion (July-September 2025)](#phase-4-system-refinement-and-data-expansion-july-september-2025)
+  - [Phase 5: Documentation and Finalization (November-December 2025)](#phase-5-documentation-and-finalization-november-december-2025)
+- [Usage](#usage)
+
+---
+
 ## Project Overview
 
 The **Scouting Report** is a comprehensive football analytics platform designed to generate actionable insights and detailed reports for player performance analysis across Europe's Big 5 leagues (Premier League, La Liga, Serie A, Bundesliga, and Ligue 1). Unlike predictive models, this project focuses on **data-driven analysis and reporting** to identify player patterns, role classifications, and performance trends spanning seven seasons (2017-2024).
@@ -287,6 +322,37 @@ See `requirements.txt` for complete list. Key dependencies:
 - fuzzywuzzy
 - python-Levenshtein
 - selenium (for dynamic content)
+
+---
+
+## Development History
+
+This project evolved through five distinct development phases, each building upon previous work to create a comprehensive football analytics platform.
+
+### Phase 1: Initial Data Acquisition (August 2024)
+**Duration**: August 23-27, 2024
+
+The project began with establishing the foundational data collection infrastructure. Initial commits focused on successfully scraping squad-level statistics and wage data from FBref.com for the Big 5 European leagues. The early implementation laid the groundwork for multi-source data collection, with initial success in extracting team statistics and wage information across multiple currencies. This phase established the core web scraping architecture that would later be expanded to include player-level statistics.
+
+### Phase 2: Core Data Cleaning Pipeline (May-June 2025)
+**Duration**: May 26 - June 15, 2025
+
+The most intensive development phase focused on building a robust, modular data cleaning pipeline. Development efforts centered on systematically processing defending, passing, and standard statistics datasets, with particular attention to handling inconsistent headers, duplicate columns, and data type conversions. Key technical achievements included implementing normalization functions for per-90 metrics, creating modular cleaning functions for reusability, and resolving complex issues such as nation column standardization and header row identification. The pipeline was designed with reproducibility in mind, ensuring consistent data quality across all processed datasets.
+
+### Phase 3: Advanced Analysis and Machine Learning (June 2025)
+**Duration**: June 16-27, 2025
+
+This phase transitioned from data preparation to analytical insights through the implementation of unsupervised learning techniques. The development team implemented K-means clustering for player role classification, addressing challenges related to dataset size and feature selection. Critical work included resolving data loss issues during merging operations, implementing proper feature scaling, and optimizing the clustering pipeline to handle the full dataset without lazy imputation. The phase culminated in successful player classification with distinct role identification, validating the data preparation work from Phase 2.
+
+### Phase 4: System Refinement and Data Expansion (July-September 2025)
+**Duration**: July 1 - September 15, 2025
+
+The refinement phase focused on expanding data coverage and improving system architecture. Major additions included integrating shooting statistics using Selenium for dynamic content scraping, implementing one-hot encoding for position data to support both modeling and visualization needs, and preparing the dataset for external analytics platforms (Google BigQuery). Technical improvements included column renaming for database compatibility, creating utility functions to standardize cleaning processes across all data types, and finalizing the complete data processing pipeline. This phase transformed the project from a collection of scripts into a cohesive, production-ready system.
+
+### Phase 5: Documentation and Finalization (November-December 2025)
+**Duration**: November 5 - December 12, 2025
+
+The final phase focused on professional documentation and system completion. Development efforts included finalizing the seasons_wages cleaning process, creating utility modules for standardized cleaning workflows, and comprehensive README documentation. The project was prepared for professional presentation, with clear documentation of technical achievements, methodology, and outcomes suitable for technical hiring managers and stakeholders. This phase ensured the project's reproducibility and demonstrated the full scope of technical capabilities across the entire development lifecycle.
 
 ---
 
