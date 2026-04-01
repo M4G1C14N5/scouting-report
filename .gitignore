@@ -1,1 +1,22 @@
 venv/
+.venv/
+
+# GCP credentials (never commit these)
+application_default_credentials.json
+*credentials*.json
+service-account*.json
+
+# Data files (large, not needed in repo)
+uncleaned_data_csv/
+data_html/
+cleaned_data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db

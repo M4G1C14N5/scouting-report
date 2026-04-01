@@ -3,3 +3,10 @@ beautifulsoup4
 pandas
 fuzzywuzzy
 python-Levenshtein
+openpyxl
+lxml
+numpy
+google-cloud-bigquery
+google-cloud-storage
+pyarrow
+streamlit
