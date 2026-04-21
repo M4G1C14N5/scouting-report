@@ -164,14 +164,20 @@ def find_similar_players(
     lookup_sql = f"""
         SELECT position_group
         FROM `{GCP_PROJECT}.{BQ_DATASET}.outfield_features`
-        WHERE Player = '{player}' AND Season = '{season}'
+        WHERE Player = @player AND Season = @season
         UNION ALL
         SELECT position_group
         FROM `{GCP_PROJECT}.{BQ_DATASET}.goalkeeper_features`
-        WHERE Player = '{player}' AND Season = '{season}'
+        WHERE Player = @player AND Season = @season
         LIMIT 1
     """
-    result = bq_client.query(lookup_sql).to_dataframe()
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("player", "STRING", player),
+            bigquery.ScalarQueryParameter("season", "STRING", season),
+        ]
+    )
+    result = bq_client.query(lookup_sql, job_config=job_config).to_dataframe()
     if result.empty:
         raise ValueError(f"Player '{player}' not found for season '{season}'.")
 
@@ -237,10 +243,16 @@ def get_player_stats(
         sql = f"""
             SELECT *
             FROM `{GCP_PROJECT}.{BQ_DATASET}.{table}`
-            WHERE Player = '{player}' AND Season = '{season}'
+            WHERE Player = @player AND Season = @season
             LIMIT 1
         """
-        df = bq_client.query(sql).to_dataframe()
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("player", "STRING", player),
+                bigquery.ScalarQueryParameter("season", "STRING", season),
+            ]
+        )
+        df = bq_client.query(sql, job_config=job_config).to_dataframe()
         if not df.empty:
             return df.iloc[0]
 
