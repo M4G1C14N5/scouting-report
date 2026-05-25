@@ -5,3 +5,6 @@ services:
     restart: unless-stopped
     environment:
       - GOOGLE_CREDENTIALS_JSON
+      - GCP_PROJECT=scouting-466001
+      - GCS_BUCKET=magician-scouting-project
+      - BQ_DATASET=scouting

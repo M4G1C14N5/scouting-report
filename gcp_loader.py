@@ -26,15 +26,13 @@ Requirements
 """
 
 from pathlib import Path
+import os
 import pandas as pd
 from google.cloud import bigquery, storage
 
-# ── CONFIG ── change these two lines ─────────────────────────────────────────
-GCP_PROJECT = "scouting-466001"       # e.g. "scouting-report-123456"
-GCS_BUCKET  = "magician-scouting-project"      # e.g. "scouting-report-data"
-# ─────────────────────────────────────────────────────────────────────────────
-
-BQ_DATASET  = "scouting"
+GCP_PROJECT = os.environ.get("GCP_PROJECT", "scouting-466001")
+GCS_BUCKET  = os.environ.get("GCS_BUCKET", "magician-scouting-project")
+BQ_DATASET  = os.environ.get("BQ_DATASET", "scouting")
 GCS_PREFIX  = "scouting"
 CLEANED_DIR = Path(__file__).parent / "cleaned_data"
 

@@ -21,14 +21,13 @@ that position group. Raw counting stats are excluded — they favour
 players with more minutes.
 """
 
+import os
 import numpy as np
 import pandas as pd
 from google.cloud import bigquery
 
-# ── CONFIG — must match gcp_loader.py ────────────────────────────────────────
-GCP_PROJECT = "scouting-466001"
-BQ_DATASET  = "scouting"
-# ─────────────────────────────────────────────────────────────────────────────
+GCP_PROJECT = os.environ.get("GCP_PROJECT", "scouting-466001")
+BQ_DATASET  = os.environ.get("BQ_DATASET", "scouting")
 
 MIN_MINUTES = 450
 
