@@ -13,5 +13,7 @@ services:
     volumes:
       # Mount your local gcloud ADC credentials read-only into the container.
       # Run `gcloud auth application-default login` on the host to generate this file.
-      # ${HOME} is used instead of ~ because Docker Compose does not expand ~.
-      - ${HOME}/.config/gcloud/application_default_credentials.json:/run/secrets/gcp-creds.json:ro
+      # Copy your ADC credentials to gcp-creds.json in the project root:
+      #   cp ~/.config/gcloud/application_default_credentials.json ./gcp-creds.json
+      # gcp-creds.json is gitignored — never commit it.
+      - ./gcp-creds.json:/run/secrets/gcp-creds.json:ro

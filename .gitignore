@@ -6,6 +6,7 @@ application_default_credentials.json
 *credentials*.json
 service-account*.json
 gcp-key.json
+gcp-creds.json
 
 # Local environment variables (contains secrets — never commit)
 .env
