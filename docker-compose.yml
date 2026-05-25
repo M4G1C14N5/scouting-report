@@ -3,7 +3,5 @@ services:
     build: .
     container_name: scouting-report
     restart: unless-stopped
-    volumes:
-      - ./credentials/service-account.json:/app/credentials/service-account.json:ro
     environment:
-      GOOGLE_APPLICATION_CREDENTIALS: /app/credentials/service-account.json
+      - GOOGLE_CREDENTIALS_JSON
