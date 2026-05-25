@@ -4,7 +4,14 @@ services:
     container_name: scouting-report
     restart: unless-stopped
     environment:
-      - GOOGLE_CREDENTIALS_JSON
+      # Points the Google Cloud SDK to the mounted service account key file
+      - GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/gcp-key.json
+      # GCP resource identifiers — change these if you move to a different project/bucket
       - GCP_PROJECT=scouting-466001
       - GCS_BUCKET=magician-scouting-project
       - BQ_DATASET=scouting
+    volumes:
+      # Mount your local service account key read-only into the container.
+      # Download from GCP Console → IAM → Service Accounts → Keys.
+      # Never commit gcp-key.json — it is gitignored.
+      - ./gcp-key.json:/run/secrets/gcp-key.json:ro
