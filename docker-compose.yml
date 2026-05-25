@@ -3,12 +3,7 @@ services:
     build: .
     container_name: scouting-report
     restart: unless-stopped
-    ports:
-      - "8501:8501"
     volumes:
-      # Mount your GCP service account key into the container.
-      # Replace ./credentials/service-account.json with the actual path to your key file.
       - ./credentials/service-account.json:/app/credentials/service-account.json:ro
     environment:
-      # Points the GCP client libraries to your service account key.
       GOOGLE_APPLICATION_CREDENTIALS: /app/credentials/service-account.json
