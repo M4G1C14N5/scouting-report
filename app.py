@@ -57,10 +57,17 @@ def load_percentiles(position_group: str, season: str) -> pd.DataFrame:
 
 # ── Percentile bar renderer ───────────────────────────────────────────────────
 def percentile_bar(label: str, value: float):
-    col1, col2, col3 = st.columns([3, 1, 6])
+    col1, col2, col3, col4 = st.columns([2.5, 0.8, 5, 1.5])
     col1.write(label)
     col2.write(f"{value:.0f}th")
     col3.progress(int(value) / 100)
+
+    if value >= 66:
+        col4.markdown(":green[**Excellent**]")
+    elif value >= 33:
+        col4.markdown(":orange[**Average**]")
+    else:
+        col4.markdown(":red[**Below Avg**]")
 
 
 PERCENTILE_LABELS = {
