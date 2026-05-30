@@ -1,0 +1,18 @@
+services:
+  scouting-report:
+    build: .
+    container_name: scouting-report
+    restart: unless-stopped
+    environment:
+      # GCP resource identifiers — change these if you move to a different project/bucket
+      - GCP_PROJECT=scouting-466001
+      - GCS_BUCKET=magician-scouting-project
+      - BQ_DATASET=scouting
+      # Tell the SDK exactly where to find the credentials inside the container
+      - GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/gcp-creds.json
+    volumes:
+      # Mount your local gcloud ADC credentials read-only into the container.
+      # Run `gcloud auth application-default login` on the host to generate this file.
+      # Mount the gcloud ADC credentials from the host user's home directory.
+      # Run `gcloud auth application-default login` on the host to generate this file.
+      - /home/tom/.config/gcloud/application_default_credentials.json:/run/secrets/gcp-creds.json:ro
