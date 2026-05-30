@@ -96,8 +96,8 @@ FEATURE_TEMPLATES = {
 }
 
 
-def _fetch_features(bq_client: bigquery.Client, position_group: str) -> pd.DataFrame:
-    """Pull feature table rows for a given position group from BigQuery."""
+def _fetch_features(bq_client: bigquery.Client, position_group: str, season: str) -> pd.DataFrame:
+    """Pull feature table rows for a given position group and season from BigQuery."""
     if position_group == "GK":
         table = f"`{GCP_PROJECT}.{BQ_DATASET}.goalkeeper_features`"
     else:
@@ -107,6 +107,7 @@ def _fetch_features(bq_client: bigquery.Client, position_group: str) -> pd.DataF
         SELECT *
         FROM {table}
         WHERE position_group = '{position_group}'
+          AND Season = '{season}'
           AND minutes >= {MIN_MINUTES}
     """
     return bq_client.query(sql).to_dataframe()
@@ -184,8 +185,8 @@ def find_similar_players(
     position_group = result.iloc[0]["position_group"]
     feature_cols   = FEATURE_TEMPLATES[position_group]
 
-    # ── 2. Fetch full pool for that position group ────────────────────────────
-    pool_df = _fetch_features(bq_client, position_group)
+    # ── 2. Fetch full pool for that position group and season ─────────────────
+    pool_df = _fetch_features(bq_client, position_group, season)
 
     if pool_df.empty:
         raise ValueError(f"No data found for position group '{position_group}'.")
