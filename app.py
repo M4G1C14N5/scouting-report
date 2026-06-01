@@ -28,10 +28,10 @@ def get_bq_client():
 def load_player_index() -> pd.DataFrame:
     bq = get_bq_client()
     sql = f"""
-        SELECT Player, Season, Squad, League, position_group, minutes
+        SELECT Player, Season, Squad, League, Position, position_group, minutes
         FROM `{GCP_PROJECT}.{BQ_DATASET}.outfield_features`
         UNION ALL
-        SELECT Player, Season, Squad, League, position_group, minutes
+        SELECT Player, Season, Squad, League, Position, position_group, minutes
         FROM `{GCP_PROJECT}.{BQ_DATASET}.goalkeeper_features`
         ORDER BY Player, Season
     """
@@ -70,39 +70,164 @@ def percentile_bar(label: str, value: float):
         col4.markdown(":red[**Below Avg**]")
 
 
-PERCENTILE_LABELS = {
-    "goals_per_90_pct":                 "Goals / 90",
-    "assists_per_90_pct":               "Assists / 90",
-    "nonpen_goals_per_90_pct":          "Non-pen Goals / 90",
-    "xg_per_90_pct":                    "xG / 90",
-    "npxg_per_90_pct":                  "npxG / 90",
-    "shots_total_per_90_pct":           "Shots / 90",
-    "shots_on_target_per_90_pct":       "Shots on Target / 90",
-    "goals_per_shot_pct":               "Goals per Shot",
-    "npxg_per_shot_pct":                "npxG per Shot",
-    "key_passes_pct":                   "Key Passes",
-    "passes_into_penalty_area_pct":     "Passes into Box",
-    "progressive_carries_pct":          "Progressive Carries",
-    "xag_per_90_pct":                   "xAG / 90",
-    "passes_completion_pct_pct":        "Pass Completion %",
-    "progressive_passes_pct":           "Progressive Passes",
-    "passes_into_final_third_pct":      "Passes into Final Third",
-    "tackles_total_pct":                "Tackles",
-    "interceptions_pct":                "Interceptions",
-    "tackles_plus_interceptions_pct":   "Tackles + Interceptions",
-    "tackles_won_pct":                  "Tackles Won",
-    "dribblers_tackled_pct_pct":        "Dribbler Tackle %",
-    "blocks_total_pct":                 "Blocks",
-    "clearances_pct":                   "Clearances",
-    "errors_leading_to_shot_pct":       "Errors Leading to Shot",
-    "progressive_passing_distance_pct": "Progressive Pass Distance",
-    "save_pct_pct":                     "Save %",
-    "goals_against_per_90_pct":         "Goals Against / 90",
-    "clean_sheet_pct_pct":              "Clean Sheet %",
-    "clean_sheets_pct":                 "Clean Sheets",
-    "pk_save_pct_pct":                  "Penalty Save %",
-    "shots_on_target_against_pct":      "SoT Against",
-    "saves_pct":                        "Saves",
+STAT_CATEGORIES = {
+    # Playing Time
+    "minutes": "Playing Time",
+    "nineties_played": "Playing Time",
+    # Shooting (includes Expected Goals)
+    "std_goals": "Shooting",
+    "goals_per_90": "Shooting",
+    "nonpen_goals": "Shooting",
+    "nonpen_goals_per_90": "Shooting",
+    "penalty_kicks_made": "Shooting",
+    "shots_total": "Shooting",
+    "shots_total_per_90": "Shooting",
+    "shots_on_target": "Shooting",
+    "shots_on_target_per_90": "Shooting",
+    "shots_on_target_pct": "Shooting",
+    "goals_per_shot": "Shooting",
+    "goals_per_shot_on_target": "Shooting",
+    "avg_shot_distance": "Shooting",
+    "std_xg": "Shooting",
+    "xg_per_90": "Shooting",
+    "npxg": "Shooting",
+    "npxg_per_90": "Shooting",
+    "npxg_per_shot": "Shooting",
+    "goals_minus_xg": "Shooting",
+    "nonpen_goals_minus_npxg": "Shooting",
+    "npxg_plus_xag_per_90": "Shooting",
+    # Passing & Assisting (includes Expected Assists)
+    "std_assists": "Passing & Assisting",
+    "assists_per_90": "Passing & Assisting",
+    "xag": "Passing & Assisting",
+    "xag_per_90": "Passing & Assisting",
+    "expected_assisted_goals": "Passing & Assisting",
+    "expected_assists": "Passing & Assisting",
+    "passes_completed_total": "Passing & Assisting",
+    "passes_attempted_total": "Passing & Assisting",
+    "passes_completion_pct_total": "Passing & Assisting",
+    "total_passing_distance": "Passing & Assisting",
+    "passes_completion_pct_short": "Passing & Assisting",
+    "passes_completion_pct_medium": "Passing & Assisting",
+    "passes_completion_pct_long": "Passing & Assisting",
+    "key_passes": "Passing & Assisting",
+    "passes_into_final_third": "Passing & Assisting",
+    "passes_into_penalty_area": "Passing & Assisting",
+    "crosses_into_penalty_area": "Passing & Assisting",
+    # Ball Progression
+    "progressive_passes_received": "Ball Progression",
+    "std_progressive_passes": "Ball Progression",
+    "pass_progressive_passes": "Ball Progression",
+    "progressive_passing_distance": "Ball Progression",
+    "progressive_carries": "Ball Progression",
+    # Dribbling & Possession
+    "dribblers_tackled": "Dribbling & Possession",
+    "dribblers_tackled_pct": "Dribbling & Possession",
+    # Defending
+    "tackles_total": "Defending",
+    "tackles_won": "Defending",
+    "tackles_def_3rd": "Defending",
+    "tackles_mid_3rd": "Defending",
+    "tackles_att_3rd": "Defending",
+    "blocks_total": "Defending",
+    "interceptions": "Defending",
+    "tackles_plus_interceptions": "Defending",
+    "clearances": "Defending",
+    "errors_leading_to_shot": "Defending",
+    # Discipline
+    "yellow_cards": "Discipline",
+    "red_cards": "Discipline",
+    # Goalkeeper
+    "goals_against": "Goalkeeper",
+    "goals_against_per_90": "Goalkeeper",
+    "shots_on_target_against": "Goalkeeper",
+    "saves": "Goalkeeper",
+    "save_pct": "Goalkeeper",
+    "wins": "Goalkeeper",
+    "draws": "Goalkeeper",
+    "losses": "Goalkeeper",
+    "clean_sheets": "Goalkeeper",
+    "clean_sheet_pct": "Goalkeeper",
+    "penalty_kicks_faced": "Goalkeeper",
+    "penalty_kicks_allowed": "Goalkeeper",
+    "penalty_kicks_saved": "Goalkeeper",
+    "pk_save_pct": "Goalkeeper",
+}
+
+STAT_LABELS = {
+    "minutes":                          "Minutes",
+    "nineties_played":                  "90s",
+    "std_goals":                        "Goals",
+    "std_assists":                      "Assists",
+    "nonpen_goals":                     "Non-Pen Goals",
+    "penalty_kicks_made":               "Penalties Made",
+    "yellow_cards":                     "Yellow Cards",
+    "red_cards":                        "Red Cards",
+    "std_xg":                           "xG",
+    "npxg":                             "npxG",
+    "xag":                              "xAG",
+    "progressive_carries":              "Progressive Carries",
+    "std_progressive_passes":           "Progressive Passes",
+    "progressive_passes_received":      "Progressive Passes Received",
+    "goals_per_90":                     "Goals / 90",
+    "assists_per_90":                   "Assists / 90",
+    "nonpen_goals_per_90":              "Non-Pen Goals / 90",
+    "xg_per_90":                        "xG / 90",
+    "xag_per_90":                       "xAG / 90",
+    "npxg_per_90":                      "npxG / 90",
+    "npxg_plus_xag_per_90":             "npxG + xAG / 90",
+    "shots_total":                      "Shots",
+    "shots_on_target":                  "Shots on Target",
+    "shots_on_target_pct":              "Shot Accuracy %",
+    "shots_total_per_90":               "Shots / 90",
+    "shots_on_target_per_90":           "Shots on Target / 90",
+    "goals_per_shot":                   "Goals per Shot",
+    "goals_per_shot_on_target":         "Goals per SoT",
+    "avg_shot_distance":                "Avg Shot Distance",
+    "npxg_per_shot":                    "npxG per Shot",
+    "goals_minus_xg":                   "Goals - xG",
+    "nonpen_goals_minus_npxg":          "Non-Pen Goals - npxG",
+    "passes_completed_total":           "Passes Completed",
+    "passes_attempted_total":           "Passes Attempted",
+    "passes_completion_pct_total":      "Pass Completion %",
+    "total_passing_distance":           "Total Pass Distance",
+    "progressive_passing_distance":     "Progressive Pass Distance",
+    "passes_completion_pct_short":      "Short Pass Completion %",
+    "passes_completion_pct_medium":     "Medium Pass Completion %",
+    "passes_completion_pct_long":       "Long Pass Completion %",
+    "expected_assisted_goals":          "Expected Assisted Goals",
+    "expected_assists":                 "Expected Assists",
+    "key_passes":                       "Key Passes",
+    "passes_into_final_third":          "Passes into Final Third",
+    "passes_into_penalty_area":         "Passes into Box",
+    "crosses_into_penalty_area":        "Crosses into Box",
+    "pass_progressive_passes":          "Progressive Passes",
+    "tackles_total":                    "Tackles",
+    "tackles_won":                      "Tackles Won",
+    "tackles_def_3rd":                  "Tackles (Def 3rd)",
+    "tackles_mid_3rd":                  "Tackles (Mid 3rd)",
+    "tackles_att_3rd":                  "Tackles (Att 3rd)",
+    "dribblers_tackled":                "Dribblers Tackled",
+    "dribblers_tackled_pct":            "Dribbler Tackle %",
+    "blocks_total":                     "Blocks",
+    "interceptions":                    "Interceptions",
+    "tackles_plus_interceptions":       "Tackles + Interceptions",
+    "clearances":                       "Clearances",
+    "errors_leading_to_shot":           "Errors Leading to Shot",
+    "goals_against":                    "Goals Against",
+    "goals_against_per_90":             "Goals Against / 90",
+    "shots_on_target_against":          "Shots on Target Against",
+    "saves":                            "Saves",
+    "save_pct":                         "Save %",
+    "wins":                             "Wins",
+    "draws":                            "Draws",
+    "losses":                           "Losses",
+    "clean_sheets":                     "Clean Sheets",
+    "clean_sheet_pct":                  "Clean Sheet %",
+    "penalty_kicks_faced":              "Penalties Faced",
+    "penalty_kicks_allowed":            "Penalties Allowed",
+    "penalty_kicks_saved":              "Penalties Saved",
+    "pk_save_pct":                      "Penalty Save %",
 }
 
 
@@ -148,38 +273,40 @@ if selected_league != "All leagues":
 if selected_team != "All teams":
     filtered = filtered[filtered["Squad"] == selected_team]
 
-# Player — text search box filters the selectbox list
-st.sidebar.header("Player Search")
-search_text = st.sidebar.text_input("Search player name", placeholder="e.g. Salah")
-
+# ── Player Search (Main page, under title) ────────────────────────────────────
+st.markdown("---")
+col_search = st.columns([1, 2, 1])[1]
 available_players = sorted(filtered["Player"].unique())
-if search_text:
-    available_players = [p for p in available_players if search_text.lower() in p.lower()]
-
-if not available_players:
-    st.sidebar.warning("No players match your filters.")
-    st.stop()
-
-selected_player = st.sidebar.selectbox("Select player", available_players)
+with col_search:
+    selected_player = st.selectbox(
+        "Search player",
+        available_players,
+        placeholder="Type to search (e.g. Salah)",
+        key="player_select"
+    )
 
 # ── Options ───────────────────────────────────────────────────────────────────
 st.sidebar.header("Options")
 top_n     = st.sidebar.slider("Similar players to show", min_value=5, max_value=20, value=10)
-stat_mode = st.sidebar.radio("Stat display", ["Per 90", "Raw"])
 
 
 # ── Main panel ────────────────────────────────────────────────────────────────
 # The player may appear in multiple selected seasons — let user pick which to analyse
 player_seasons = sorted(
     filtered[filtered["Player"] == selected_player]["Season"].unique(),
-    reverse=True,
+    reverse=False,
 )
 
 if len(player_seasons) > 1:
-    selected_season = st.selectbox(
-        f"{selected_player} appeared in multiple seasons — select one to analyse:",
-        player_seasons,
-    )
+    st.write(f"{selected_player} appeared in multiple seasons — select one:")
+    cols = st.columns(len(player_seasons))
+    selected_season = None
+    for col, season in zip(cols, player_seasons):
+        if col.button(season, key=f"season_{season}", width='stretch'):
+            selected_season = season
+
+    if selected_season is None:
+        selected_season = player_seasons[0]
 else:
     selected_season = player_seasons[0]
 
@@ -193,11 +320,12 @@ bq = get_bq_client()
 
 # Header metrics
 st.subheader(selected_player)
-info_cols = st.columns(4)
-info_cols[0].metric("Club",    player_row["Squad"])
-info_cols[1].metric("League",  player_row["League"])
-info_cols[2].metric("Season",  selected_season)
-info_cols[3].metric("Minutes", int(player_row["minutes"]))
+info_cols = st.columns(5)
+info_cols[0].metric("Position", player_row["Position"])
+info_cols[1].metric("Club",    player_row["Squad"])
+info_cols[2].metric("League",  player_row["League"])
+info_cols[3].metric("Season",  selected_season)
+info_cols[4].metric("Minutes", int(player_row["minutes"]))
 
 st.divider()
 
@@ -214,37 +342,67 @@ with tab1:
         identity_cols = {"Player", "Nation", "Position", "Squad", "League",
                          "Season", "position_group", "Age", "Born"}
 
-        if stat_mode == "Per 90":
-            mask = (
-                stats_df["Stat"].str.endswith("_per_90") |
-                stats_df["Stat"].str.endswith("_pct")
-            ) & ~stats_df["Stat"].isin(identity_cols)
-        else:
-            mask = ~stats_df["Stat"].isin(identity_cols)
+        display_df = stats_df[~stats_df["Stat"].isin(identity_cols)].copy()
+        display_df["Category"] = display_df["Stat"].map(lambda x: STAT_CATEGORIES.get(x, "Other"))
+        display_df["Stat"] = display_df["Stat"].map(lambda x: STAT_LABELS.get(x, x))
 
-        st.dataframe(
-            stats_df[mask].reset_index(drop=True),
-            use_container_width=True,
-            hide_index=True,
-        )
+        # Sort by category then by stat name
+        display_df = display_df.sort_values(["Category", "Stat"]).reset_index(drop=True)
+
+        # Display by category
+        for category in display_df["Category"].unique():
+            st.subheader(category)
+            cat_df = display_df[display_df["Category"] == category][["Stat", "Value"]].reset_index(drop=True)
+            st.dataframe(cat_df, width='stretch', hide_index=True, height='content')
     except Exception as e:
         st.error(f"Could not load stats: {e}")
 
 # ── Tab 2: Percentile ranks ───────────────────────────────────────────────────
 with tab2:
     try:
-        pct_df     = load_percentiles(position_group, selected_season)
-        player_pct = pct_df[pct_df["Player"] == selected_player]
-
-        if player_pct.empty:
-            st.info("Percentile data not available (player may be below the 450-minute threshold).")
+        if position_group == "GK":
+            table = f"`{GCP_PROJECT}.{BQ_DATASET}.goalkeeper_features`"
         else:
-            row      = player_pct.iloc[0]
-            pct_cols = [c for c in row.index if c.endswith("_pct") and c in PERCENTILE_LABELS]
-            for col in pct_cols:
-                val = row[col]
-                if pd.notna(val):
-                    percentile_bar(PERCENTILE_LABELS[col], float(val))
+            table = f"`{GCP_PROJECT}.{BQ_DATASET}.outfield_features`"
+
+        pool_sql = f"""
+            SELECT *
+            FROM {table}
+            WHERE position_group = '{position_group}'
+              AND Season = '{selected_season}'
+              AND minutes >= 450
+        """
+        pool_df = bq.query(pool_sql).to_dataframe()
+
+        if pool_df.empty:
+            st.info("Not enough players in this position/season to compute percentiles.")
+        else:
+            player_data = pool_df[pool_df["Player"] == selected_player]
+            if player_data.empty:
+                st.info("Player not in percentile pool (may be below 450-minute threshold).")
+            else:
+                player_row = player_data.iloc[0]
+
+                identity_cols = {"Player", "Nation", "Position", "Squad", "League", "Season", "position_group", "Age", "Born"}
+                numeric_cols = [c for c in pool_df.columns if c not in identity_cols and pool_df[c].dtype in ['float64', 'int64']]
+
+                # Group stats by category
+                stats_by_category = {}
+                for col in numeric_cols:
+                    val = player_row[col]
+                    if pd.notna(val):
+                        pct = (pool_df[col] < val).sum() / len(pool_df) * 100
+                        category = STAT_CATEGORIES.get(col, "Other")
+                        label = STAT_LABELS.get(col, col)
+                        if category not in stats_by_category:
+                            stats_by_category[category] = []
+                        stats_by_category[category].append((label, pct))
+
+                # Display by category
+                for category in sorted(stats_by_category.keys()):
+                    st.subheader(category)
+                    for label, pct in sorted(stats_by_category[category]):
+                        percentile_bar(label, pct)
     except Exception as e:
         st.error(f"Could not load percentiles: {e}")
 
@@ -264,6 +422,6 @@ with tab3:
                 bq_client=bq,
             )
             similar["similarity_score"] = similar["similarity_score"].round(3)
-            st.dataframe(similar, use_container_width=True, hide_index=True)
+            st.dataframe(similar, width='stretch', hide_index=True)
     except Exception as e:
         st.error(f"Could not compute similarity: {e}")
