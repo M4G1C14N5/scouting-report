@@ -17,6 +17,24 @@ from src.similarity import find_similar_players, get_player_stats, GCP_PROJECT, 
 st.set_page_config(page_title="Scouting Report", layout="wide")
 st.title("Football Scouting Report")
 
+# ── Custom CSS for larger dataframe text ───────────────────────────────────────
+st.markdown("""
+    <style>
+        .dataframe-table {
+            font-size: 16px !important;
+        }
+        [data-testid="dataframe"] {
+            font-size: 16px !important;
+        }
+        [data-testid="dataframe"] th {
+            font-size: 16px !important;
+        }
+        [data-testid="dataframe"] td {
+            font-size: 16px !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 # ── BigQuery client ───────────────────────────────────────────────────────────
 @st.cache_resource
 def get_bq_client():
