@@ -17,20 +17,36 @@ from src.similarity import find_similar_players, get_player_stats, GCP_PROJECT, 
 st.set_page_config(page_title="Scouting Report", layout="wide")
 st.title("Football Scouting Report")
 
-# ── Custom CSS for larger dataframe text ───────────────────────────────────────
+# ── Custom CSS for compact dataframe and pink accents ────────────────────────────
 st.markdown("""
     <style>
-        .dataframe-table {
-            font-size: 16px !important;
-        }
+        /* Compact dataframe text */
         [data-testid="dataframe"] {
-            font-size: 16px !important;
+            font-size: 13px !important;
         }
-        [data-testid="dataframe"] th {
-            font-size: 16px !important;
+
+        /* Replace red accent with pink */
+        [data-testid="stAlert"] {
+            background-color: rgba(252, 136, 229, 0.1) !important;
+            border-left: 4px solid #fc88e5 !important;
         }
-        [data-testid="dataframe"] td {
-            font-size: 16px !important;
+
+        /* Pink accent for progress bars */
+        [role="progressbar"] {
+            background-color: #fc88e5 !important;
+        }
+
+        /* Pink accent for form elements */
+        input[type="range"] {
+            accent-color: #fc88e5 !important;
+        }
+
+        input[type="checkbox"] {
+            accent-color: #fc88e5 !important;
+        }
+
+        input[type="radio"] {
+            accent-color: #fc88e5 !important;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -367,11 +383,58 @@ with tab1:
         # Sort by category then by stat name
         display_df = display_df.sort_values(["Category", "Stat"]).reset_index(drop=True)
 
-        # Display by category
-        for category in display_df["Category"].unique():
-            st.subheader(category)
-            cat_df = display_df[display_df["Category"] == category][["Stat", "Value"]].reset_index(drop=True)
-            st.dataframe(cat_df, width='stretch', hide_index=True, height='content')
+        # Custom layout: group categories by relevance and size
+        categories_present = set(display_df["Category"].unique())
+
+        def show_category(category):
+            if category in categories_present:
+                st.subheader(category)
+                cat_df = display_df[display_df["Category"] == category][["Stat", "Value"]].reset_index(drop=True)
+                st.dataframe(cat_df, use_container_width=True, hide_index=True, height='content')
+
+        # Row 1: Shooting | Passing & Assisting
+        if "Shooting" in categories_present or "Passing & Assisting" in categories_present:
+            cols = st.columns(2, gap="medium")
+            with cols[0]:
+                if "Shooting" in categories_present:
+                    show_category("Shooting")
+            with cols[1]:
+                if "Passing & Assisting" in categories_present:
+                    show_category("Passing & Assisting")
+
+        # Row 2: Defending | (Ball Progression + Dribbling stacked)
+        if "Defending" in categories_present or "Ball Progression" in categories_present or "Dribbling & Possession" in categories_present:
+            cols = st.columns(2, gap="medium")
+            with cols[0]:
+                if "Defending" in categories_present:
+                    show_category("Defending")
+            with cols[1]:
+                if "Ball Progression" in categories_present:
+                    show_category("Ball Progression")
+                if "Dribbling & Possession" in categories_present:
+                    show_category("Dribbling & Possession")
+
+        # Row 3: Goalkeeper (if present)
+        if "Goalkeeper" in categories_present:
+            show_category("Goalkeeper")
+
+        # Row 4: Playing Time | Discipline (low priority, bottom)
+        if "Playing Time" in categories_present or "Discipline" in categories_present:
+            cols = st.columns(2, gap="medium")
+            with cols[0]:
+                if "Playing Time" in categories_present:
+                    show_category("Playing Time")
+            with cols[1]:
+                if "Discipline" in categories_present:
+                    show_category("Discipline")
+
+        # Row 5: Any other categories that aren't in the above layout
+        standard_categories = {"Shooting", "Passing & Assisting", "Defending", "Ball Progression",
+                              "Dribbling & Possession", "Goalkeeper", "Playing Time", "Discipline"}
+        remaining = categories_present - standard_categories
+        if remaining:
+            for category in sorted(remaining):
+                show_category(category)
     except Exception as e:
         st.error(f"Could not load stats: {e}")
 
