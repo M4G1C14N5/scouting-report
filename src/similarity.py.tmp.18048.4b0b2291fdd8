@@ -55,25 +55,21 @@ FEATURE_TEMPLATES = {
         "npxg_plus_xag_per_90",
     ],
     "MID": [
-        # Progression & dribbling (heavily weighted — defines midfielder style)
-        "progressive_carries",
-        "progressive_passing_distance",
-        "pass_progressive_passes",
-        "passes_into_final_third",
-        # Playmaking
+        "goals_per_90",
         "assists_per_90",
         "xag_per_90",
         "key_passes",
-        "passes_into_penalty_area",
-        "crosses_into_penalty_area",
-        # Involvement & efficiency
         "passes_completion_pct_total",
-        "goals_per_90",
+        "passes_into_final_third",
+        "pass_progressive_passes",
+        "progressive_carries",
+        "tackles_total",
+        "interceptions",
+        "tackles_plus_interceptions",
         "shots_total_per_90",
         "npxg_per_90",
-        # Defending
-        "tackles_plus_interceptions",
-        "interceptions",
+        "passes_into_penalty_area",
+        "crosses_into_penalty_area",
     ],
     "DEF": [
         "tackles_total",
