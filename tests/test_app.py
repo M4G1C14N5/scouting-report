@@ -41,8 +41,7 @@ def _select(at: AppTest, player: str) -> AppTest:
 
 
 def _markdown(at) -> str:
-    # theme helpers html-escape their text (isn&#x27;t), so unescape before matching prose
-    return html.unescape("\n".join(m.value for m in at.markdown))
+    return "\n".join(m.value for m in at.markdown)
 
 
 def _captions(at) -> str:
@@ -61,6 +60,7 @@ def test_no_selection_shows_hero_onboarding_and_footer(stub_data):
     assert not at.tabs
     assert "Showing 11 players" in " ".join(c.value for c in at.sidebar.caption)
     assert at.selectbox(key="player_pick").value is None  # nobody auto-selected
+    assert at.button_group(key="f_season").value == fakes.LATEST  # sidebar defaults to the latest season
 
 
 def test_example_button_opens_a_profile(stub_data):
@@ -105,7 +105,8 @@ def test_season_switcher_defaults_to_latest_and_sticks(stub_data):
 
 def test_low_minutes_player_gets_empty_states(stub_data):
     md = _markdown(_select(_app(), "Bench Striker"))
-    assert "isn't in the percentile pool" in md
+    # theme helpers html-escape their text (isn&#x27;t), so unescape before matching prose
+    assert "isn't in the percentile pool" in html.unescape(md)
     assert "below the 450-minute threshold" in md
 
 
@@ -124,6 +125,27 @@ def test_club_resets_when_league_changes(stub_data):
     at.selectbox(key="f_league").set_value("Bundesliga").run()
     assert not at.exception
     assert at.selectbox(key="f_club").value == "All clubs"
+
+
+def test_player_cleared_when_league_filter_excludes_them(stub_data):
+    at = _select(_app(), "Mohamed Salah")
+    at.selectbox(key="f_league").set_value("Bundesliga").run()
+    assert not at.exception
+    assert at.session_state["player_pick"] is None
+    assert not at.tabs
+    assert "Find a player" in _markdown(at)  # onboarding shows, not a stale profile
+
+
+def test_season_switch_recovers_when_season_filter_narrows(stub_data):
+    at = _app()
+    at.button_group(key="f_season").set_value("All").run()
+    at = _select(at, "Mohamed Salah")
+    at.button_group(key="season_switch").set_value(fakes.PREVIOUS).run()
+    assert not at.exception
+    at.button_group(key="f_season").set_value(fakes.LATEST).run()
+    assert not at.exception
+    assert at.session_state["player_pick"] == "Mohamed Salah"
+    assert "vs 6 forwards in 2023-24, 450+ minutes" in _captions(at)  # only 2023-24 is in view
 
 
 def test_view_profile_switches_player(stub_data):

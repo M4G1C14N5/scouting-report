@@ -15,8 +15,7 @@ TIMEOUT = 60
 
 
 def _markdown(at) -> str:
-    # theme helpers html-escape their text, so unescape before matching prose
-    return html.unescape("\n".join(m.value for m in at.markdown))
+    return "\n".join(m.value for m in at.markdown)
 
 
 def _captions(at) -> str:
