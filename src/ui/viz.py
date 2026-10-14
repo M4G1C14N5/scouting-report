@@ -99,6 +99,10 @@ def compare_dumbbell(metrics: list[str], a_vals: list[float], b_vals: list[float
                      a_name: str, b_name: str) -> go.Figure:
     """Two players' percentiles on the same metrics: dots joined by a line, so
     the gap is the first thing you read."""
+    if not (len(metrics) == len(a_vals) == len(b_vals)):
+        raise ValueError(
+            f"compare_dumbbell needs equal-length inputs, got {len(metrics)} metrics, "
+            f"{len(a_vals)} values for {a_name} and {len(b_vals)} for {b_name}")
     if not metrics:
         return _empty("No shared metrics to compare")
     fig = go.Figure()
@@ -110,21 +114,35 @@ def compare_dumbbell(metrics: list[str], a_vals: list[float], b_vals: list[float
             x=list(vals), y=list(metrics), mode="markers", name=name,
             marker=dict(color=color, size=12, line=dict(color=T.SURFACE, width=2)),
             customdata=[stats.pct_label(v) for v in vals],
-            hovertemplate=name + "<br>%{y}: %{customdata} percentile<extra></extra>",
+            hovertemplate="%{fullData.name}<br>%{y}: %{customdata} percentile<extra></extra>",
         )
-    # Direct labels on the first row, in ink, each on the outer side of its dot.
+    # Direct labels on the first row, in ink. By default each sits on the outer
+    # side of its dot (lower dot's label to the left, higher dot's to the
+    # right). Near an edge the outer side would run off the chart, so a value
+    # above 75 anchors right and one below 25 anchors left. A tie keeps
+    # opposite anchors so the two labels never stack.
     a0, b0 = a_vals[0], b_vals[0]
-    a_left = a0 <= b0
-    for value, name, is_left in ((a0, a_name, a_left), (b0, b_name, not a_left)):
+
+    def _anchor(value: float, is_lower: bool) -> str:
+        if a0 != b0:
+            if value > 75:
+                return "right"
+            if value < 25:
+                return "left"
+        return "right" if is_lower else "left"
+
+    a_lower = a0 <= b0
+    for value, name, is_lower in ((a0, a_name, a_lower), (b0, b_name, not a_lower)):
         fig.add_annotation(x=value, y=metrics[0], text=name, showarrow=False, yshift=16,
-                           xanchor="right" if is_left else "left",
+                           xanchor=_anchor(value, is_lower),
                            font=dict(color=T.INK_2, size=11))
     fig.add_vline(x=50, line_color=T.MUTED, line_width=1, line_dash="dot")
     fig.update_layout(**_layout(
         height=max(220, DUMBBELL_ROW_PX * len(metrics) + 90),
         showlegend=True,
         margin=dict(l=8, r=8, t=40, b=8),
-        xaxis=_axis(range=[0, 100], tickvals=[0, 25, 50, 75, 100],
+        # slight padding so the end dots (and their outline) are not cut at 0/100
+        xaxis=_axis(range=[-4, 104], tickvals=[0, 25, 50, 75, 100],
                     title=dict(text="Percentile in position pool", font=dict(color=T.MUTED, size=11))),
         yaxis=_axis(autorange="reversed", showgrid=False, tickfont=dict(color=T.INK_2, size=11)),
     ))
