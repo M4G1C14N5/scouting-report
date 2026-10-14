@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from src.ui import theme, viz
 
 ROWS = [("A", 10.0, "1"), ("B", 30.0, "2"), ("C", 60.0, "3"), ("D", 90.0, "4")]
@@ -59,7 +61,9 @@ def test_dumbbell_direct_labels_on_first_row_in_ink():
     assert set(labels) == {"Salah", "Kane"}
     assert all(a.y == "Goals / 90" for a in labels.values())
     assert all(a.font.color == theme.INK_2 for a in labels.values())
-    assert labels["Kane"].xanchor == "right" and labels["Salah"].xanchor == "left"  # mid-range: lower dot's label goes left
+    assert all(a.xanchor == "center" for a in labels.values())
+    assert labels["Salah"].yshift > 0 > labels["Kane"].yshift  # A above its dot, B below
+    assert (labels["Salah"].x, labels["Kane"].x) == (70.0, 30.0)  # unclamped mid-range
 
 
 def test_dumbbell_empty_state():
@@ -67,17 +71,41 @@ def test_dumbbell_empty_state():
     assert fig.layout.annotations[0].text == "No shared metrics to compare"
 
 
-def _anchors(a_vals, b_vals):
+def _labels(a_vals, b_vals):
     fig = viz.compare_dumbbell(["Goals / 90"], a_vals, b_vals, "Salah", "Kane")
-    return {a.text: a.xanchor for a in fig.layout.annotations}
+    return {a.text: a for a in fig.layout.annotations}
 
 
-def test_dumbbell_labels_flip_inward_near_the_edges():
-    assert _anchors([95.0], [60.0])["Salah"] == "right"   # high edge: label runs inward
-    assert _anchors([5.0], [40.0])["Salah"] == "left"      # low edge: label runs inward
-    assert _anchors([60.0], [95.0])["Kane"] == "right"
-    assert _anchors([50.0], [50.0]) == {"Salah": "right", "Kane": "left"}  # tie stays opposite
-    assert _anchors([95.0], [95.0]) == {"Salah": "right", "Kane": "left"}  # tie at the edge too
+@pytest.mark.parametrize("a, b, a_x, b_x", [
+    (97.0, 3.0, 90, 10),      # both ends clamp
+    (92.0, 97.0, 90, 90),     # both high: same x, but opposite sides
+    (5.0, 20.0, 10, 20),      # both low
+    (100.0, 100.0, 90, 90),   # tie at the edge
+    (50.0, 50.0, 50, 50),     # tie mid-range
+])
+def test_dumbbell_labels_clamp_x_and_split_vertically(a, b, a_x, b_x):
+    labels = _labels([a], [b])
+    assert (labels["Salah"].x, labels["Kane"].x) == (a_x, b_x)
+    assert labels["Salah"].yshift > 0 > labels["Kane"].yshift  # never the same side
+    assert all(l.xanchor == "center" for l in labels.values())
+
+
+def test_dumbbell_dots_keep_their_true_value_when_label_is_clamped():
+    fig = viz.compare_dumbbell(["m"], [97.0], [3.0], "Salah", "Kane")
+    markers = [t for t in fig.data if t.mode == "markers"]
+    assert (list(markers[0].x), list(markers[1].x)) == ([97.0], [3.0])
+
+
+def test_dumbbell_top_margin_leaves_room_for_the_label_above():
+    fig = viz.compare_dumbbell(["m"], [50.0], [60.0], "Salah", "Kane")
+    assert fig.layout.margin.t >= 48
+
+
+def test_dumbbell_escapes_names_in_legend_and_labels():
+    fig = viz.compare_dumbbell(["m"], [10.0], [20.0], "A<b>", "K&Co")
+    markers = [t for t in fig.data if t.mode == "markers"]
+    assert [t.name for t in markers] == ["A&lt;b&gt;", "K&amp;Co"]
+    assert {a.text for a in fig.layout.annotations} == {"A&lt;b&gt;", "K&amp;Co"}
 
 
 def test_dumbbell_range_is_padded_but_ticks_stay_0_to_100():
@@ -87,7 +115,6 @@ def test_dumbbell_range_is_padded_but_ticks_stay_0_to_100():
 
 
 def test_dumbbell_rejects_mismatched_lengths():
-    import pytest
     with pytest.raises(ValueError, match="equal-length"):
         viz.compare_dumbbell(["a", "b"], [1.0], [1.0, 2.0], "A", "B")
     with pytest.raises(ValueError, match="equal-length"):

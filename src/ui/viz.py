@@ -9,6 +9,8 @@ ending in <extra></extra>. Text uses the ink tokens, never a series colour.
 
 from __future__ import annotations
 
+import html
+
 import plotly.graph_objects as go
 
 from src.ui import stats
@@ -18,6 +20,8 @@ PLOTLY_CONFIG = {"displayModeBar": False}
 ROW_PX = 38            # percentile bar row height
 DUMBBELL_ROW_PX = 34
 LINK = "rgba(236,242,237,0.22)"  # dumbbell connector
+LABEL_SHIFT = 14       # px above/below a dot for its direct label
+LABEL_X_MIN, LABEL_X_MAX = 10, 90  # keep centred labels inside the plot
 
 
 def _axis(**overrides) -> dict:
@@ -105,6 +109,8 @@ def compare_dumbbell(metrics: list[str], a_vals: list[float], b_vals: list[float
             f"{len(a_vals)} values for {a_name} and {len(b_vals)} for {b_name}")
     if not metrics:
         return _empty("No shared metrics to compare")
+    # Plotly renders "<" as markup in names, so escape what we pass as text.
+    a_name, b_name = html.escape(a_name), html.escape(b_name)
     fig = go.Figure()
     for metric, a, b in zip(metrics, a_vals, b_vals):
         fig.add_scatter(x=[a, b], y=[metric, metric], mode="lines",
@@ -116,31 +122,19 @@ def compare_dumbbell(metrics: list[str], a_vals: list[float], b_vals: list[float
             customdata=[stats.pct_label(v) for v in vals],
             hovertemplate="%{fullData.name}<br>%{y}: %{customdata} percentile<extra></extra>",
         )
-    # Direct labels on the first row, in ink. By default each sits on the outer
-    # side of its dot (lower dot's label to the left, higher dot's to the
-    # right). Near an edge the outer side would run off the chart, so a value
-    # above 75 anchors right and one below 25 anchors left. A tie keeps
-    # opposite anchors so the two labels never stack.
-    a0, b0 = a_vals[0], b_vals[0]
-
-    def _anchor(value: float, is_lower: bool) -> str:
-        if a0 != b0:
-            if value > 75:
-                return "right"
-            if value < 25:
-                return "left"
-        return "right" if is_lower else "left"
-
-    a_lower = a0 <= b0
-    for value, name, is_lower in ((a0, a_name, a_lower), (b0, b_name, not a_lower)):
-        fig.add_annotation(x=value, y=metrics[0], text=name, showarrow=False, yshift=16,
-                           xanchor=_anchor(value, is_lower),
+    # Direct labels on the first row, in ink. Placement does not depend on the
+    # pair: A's label sits above its dot, B's below, both centred, so two close
+    # or tied dots never overlap their labels. The label x is clamped so centred
+    # text cannot run past the plot edge (the dot keeps its true value).
+    for value, name, yshift in ((a_vals[0], a_name, LABEL_SHIFT), (b_vals[0], b_name, -LABEL_SHIFT)):
+        fig.add_annotation(x=min(max(value, LABEL_X_MIN), LABEL_X_MAX), y=metrics[0], text=name,
+                           showarrow=False, xanchor="center", yshift=yshift,
                            font=dict(color=T.INK_2, size=11))
     fig.add_vline(x=50, line_color=T.MUTED, line_width=1, line_dash="dot")
     fig.update_layout(**_layout(
         height=max(220, DUMBBELL_ROW_PX * len(metrics) + 90),
         showlegend=True,
-        margin=dict(l=8, r=8, t=40, b=8),
+        margin=dict(l=8, r=8, t=48, b=8),  # room for the first row's label above its dot
         # slight padding so the end dots (and their outline) are not cut at 0/100
         xaxis=_axis(range=[-4, 104], tickvals=[0, 25, 50, 75, 100],
                     title=dict(text="Percentile in position pool", font=dict(color=T.MUTED, size=11))),
