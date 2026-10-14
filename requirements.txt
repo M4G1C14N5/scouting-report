@@ -10,4 +10,5 @@ google-cloud-bigquery
 google-cloud-storage
 pyarrow
 db-dtypes
-streamlit
+streamlit>=1.56
+plotly>=6.0
