@@ -16,7 +16,13 @@ import pandas as pd
 import streamlit as st
 from google.cloud import bigquery
 
-from src.similarity import BQ_DATASET, GCP_PROJECT, find_similar_players, get_player_stats
+from src.similarity import (
+    BQ_DATASET,
+    GCP_PROJECT,
+    MIN_MINUTES,
+    find_similar_players,
+    get_player_stats,
+)
 
 TTL = 3600
 SIMILAR_MAX = 20  # the slider's max; views slice .head(top_n)
@@ -47,7 +53,7 @@ def player_stats(_bq, player: str, season: str) -> pd.Series:
 
 @st.cache_data(ttl=TTL, show_spinner="Loading the position pool…")
 def position_pool(_bq, position_group: str, season: str) -> pd.DataFrame:
-    """Everyone in the group and season with 450+ minutes, fetched once and
+    """Everyone in the group and season with MIN_MINUTES+ minutes, fetched once and
     shared by the Profile and Similar tabs."""
     if position_group == "GK":
         table = f"`{GCP_PROJECT}.{BQ_DATASET}.goalkeeper_features`"
@@ -59,7 +65,7 @@ def position_pool(_bq, position_group: str, season: str) -> pd.DataFrame:
         FROM {table}
         WHERE position_group = '{position_group}'
           AND Season = '{season}'
-          AND minutes >= 450
+          AND minutes >= {MIN_MINUTES}
     """
     return _bq.query(pool_sql).to_dataframe()
 

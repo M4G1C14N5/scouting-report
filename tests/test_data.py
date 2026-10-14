@@ -110,6 +110,8 @@ def test_similar_players_asks_for_the_max_once(monkeypatch):
     data.similar_players(bq, "A", "2023-2024", "ATT")
     data.similar_players(bq, "A", "2023-2024", "ATT")
     assert seen == [{"player": "A", "season": "2023-2024", "top_n": data.SIMILAR_MAX, "bq_client": bq}]
+    data.similar_players(bq, "A", "2023-2024", "MID")  # position_group is part of the cache key
+    assert len(seen) == 2
 
 
 def test_errors_are_not_cached(monkeypatch):
