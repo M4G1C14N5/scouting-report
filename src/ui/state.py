@@ -15,6 +15,7 @@ PLAYER = "player_pick"       # player search selectbox
 SWITCH = "season_switch"     # per-player season switcher
 SWITCH_FOR = "_switch_for"   # which player SWITCH was last set for
 SIMILAR_TABLE = "similar_table"
+SIMILAR_FOR = "_similar_for"  # (player, season) the table selection belongs to
 
 
 def goto(player: str, season: str) -> None:
@@ -28,3 +29,4 @@ def goto(player: str, season: str) -> None:
     st.session_state[PLAYER] = player
     st.session_state[SWITCH] = season
     st.session_state[SWITCH_FOR] = player
+    st.session_state.pop(SIMILAR_TABLE, None)  # a new player starts with no row selected

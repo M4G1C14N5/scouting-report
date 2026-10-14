@@ -52,6 +52,11 @@ def render(bq, pool: pd.DataFrame | None, row) -> None:
         return
 
     table = build.similar_table(matches.head(top_n))
+    # A keyed dataframe keeps its selection when the data changes, so drop it
+    # whenever the table now belongs to a different player-season.
+    if st.session_state.get(state.SIMILAR_FOR) != (player, season):
+        st.session_state.pop(state.SIMILAR_TABLE, None)
+        st.session_state[state.SIMILAR_FOR] = (player, season)
     event = st.dataframe(table, hide_index=True, width="stretch", on_select="rerun",
                          selection_mode="single-row", key=state.SIMILAR_TABLE,
                          column_config=COLUMN_CONFIG)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import json
 
 import pytest
 from streamlit.testing.v1 import AppTest
@@ -57,6 +58,16 @@ def similar_script(player: str, season: str) -> None:
     similar.render(object(), fakes.position_pool(row["position_group"], season), row)
 
 
+def similar_switch_script() -> None:
+    import streamlit as st
+
+    from src.ui.views import similar
+    from tests import fakes
+
+    row = fakes.player_stats(st.session_state.get("who", "Mohamed Salah"), fakes.LATEST)
+    similar.render(object(), fakes.position_pool(row["position_group"], fakes.LATEST), row)
+
+
 def _run(script, *args) -> AppTest:
     at = AppTest.from_function(script, args=args, default_timeout=TIMEOUT).run()
     assert not at.exception, at.exception
@@ -103,7 +114,8 @@ def test_profile_goalkeeper():
 
 def test_profile_player_below_threshold_gets_empty_state():
     at = _run(profile_script, "Bench Striker", fakes.LATEST, "ATT", False)
-    assert "Bench Striker isn't in the percentile pool" in _markdown(at)
+    # theme helpers html-escape their text (isn&#x27;t), so unescape before matching prose
+    assert "Bench Striker isn't in the percentile pool" in html.unescape(_markdown(at))
     assert len(at.get("plotly_chart")) == 0
 
 
@@ -149,6 +161,9 @@ def test_similar_selection_shows_dumbbell_and_view_profile_jumps(stub_similar):
     assert not at.exception
     assert len(at.get("plotly_chart")) == 1
     assert "Mohamed Salah vs Erling Haaland" in _markdown(at)
+    traces = json.loads(at.get("plotly_chart")[0].proto.spec)["data"]
+    markers = [t for t in traces if t.get("mode") == "markers"]
+    assert len(markers) == 2 and len(markers[0]["x"]) == len(markers[1]["x"]) > 0
     at.button(key="view_profile").click().run()
     assert not at.exception
     assert at.session_state["player_pick"] == "Erling Haaland"
@@ -171,3 +186,19 @@ def test_similar_error_is_readable(monkeypatch):
     monkeypatch.setattr(data, "similar_players", boom)
     at = _run(similar_script, "Mohamed Salah", fakes.LATEST)
     assert at.error[0].value == "Couldn't compute similar players."
+
+
+def test_similar_selection_is_cleared_when_the_player_changes(stub_similar):
+    at = AppTest.from_function(similar_switch_script, default_timeout=TIMEOUT).run()
+    at.session_state["similar_table"] = {"selection": {"rows": [0], "columns": []}}
+    at.run()
+    assert not at.exception
+    assert len(at.get("plotly_chart")) == 1 and at.button(key="view_profile")
+    # AppTest drops the table's selection between runs, so re-assert it in the
+    # same run that switches player: the stale selection a real browser keeps.
+    at.session_state["similar_table"] = {"selection": {"rows": [0], "columns": []}}
+    at.session_state["who"] = "Harry Kane"
+    at.run()
+    assert not at.exception, at.exception
+    assert len(at.get("plotly_chart")) == 0
+    assert all(b.key != "view_profile" for b in at.button)
