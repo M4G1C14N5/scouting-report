@@ -83,11 +83,23 @@ Defined in `src/similarity.py`. Uses cosine similarity on z-scored per-90 stats.
 
 ## App
 
-`app.py` — Streamlit, runs locally against BigQuery.
+`app.py` runs the **Football Player Profiler**, a Streamlit app that queries BigQuery live (results are cached for an hour).
 
-- Filter by season(s), league, and team before searching
-- Text search filters the player dropdown as you type
-- Three tabs per player: **Stats** (raw or per-90 toggle), **Percentile Ranks** (position-specific bars), **Similar Players** (similarity model output)
+- Sidebar filters: season (or all seasons), league and club
+- Search for one player. Players with several seasons in view get a season switcher.
+- Identity card with headline numbers: goals, assists, xG and xAG, or save %, goals against per 90 and clean-sheet % for keepers
+- **Profile**: percentile bars against the same position and season (450+ minutes) on a curated metric list per position. Lower-is-better stats (errors, cards, goals against) are inverted.
+- **Stats**: every stat by category, with the season total next to per 90
+- **Similar players**: the similarity model's top matches. Select one to compare percentiles side by side and jump to their profile.
+
+UI code lives in `src/ui/`: theme, charts, cached queries and views. Per-position metric lists, labels and number formats are all in `src/ui/metrics.py`, the one file to edit when the data source changes.
+
+### Screenshots
+
+![Empty state](docs/screenshots/01-empty.png)
+![Forward profile](docs/screenshots/03-outfield-profile.png)
+![Similar players](docs/screenshots/05-outfield-similar.png)
+![Goalkeeper profile](docs/screenshots/07-gk-profile.png)
 
 ---
 
@@ -132,6 +144,20 @@ GCS_BUCKET  = "your-bucket-name"
 .venv/Scripts/python -m streamlit run app.py
 ```
 
+**Run the tests** (no BigQuery needed: the data layer is stubbed)
+
+```bash
+.venv/Scripts/python -m pip install -r requirements-dev.txt
+.venv/Scripts/python -m pytest
+```
+
+**Refresh the README screenshots** (needs the app running on port 8599 and Playwright)
+
+```bash
+.venv/Scripts/python -m streamlit run app.py --server.headless true --server.port 8599
+C:/Python314/python scripts/screenshot.py
+```
+
 ---
 
 ## Project structure
@@ -140,12 +166,18 @@ GCS_BUCKET  = "your-bucket-name"
 scouting-report/
 ├── run_cleaning.py          # Pipeline entry point — cleans all datasets
 ├── gcp_loader.py            # Uploads to GCS, loads into BigQuery, rebuilds feature tables
-├── app.py                   # Streamlit app
+├── app.py                   # Streamlit app shell (Football Player Profiler)
 ├── schema.sql               # Full BigQuery DDL (raw tables + feature tables + percentile views)
 ├── requirements.txt
+├── requirements-dev.txt     # + pytest
+├── .streamlit/config.toml   # Floodlight theme for native widgets
 ├── src/
 │   ├── fbref_utils.py       # All cleaning, normalisation, and aggregation logic
-│   └── similarity.py        # Similarity model and BigQuery query functions
+│   ├── similarity.py        # Similarity model and BigQuery query functions
+│   └── ui/                  # theme, charts, metric config, cached queries, views
+├── tests/                   # pytest + Streamlit AppTest (BigQuery stubbed)
+├── scripts/screenshot.py    # Playwright review screenshots
+├── docs/screenshots/        # README images
 ├── cleaned_data/            # Output of run_cleaning.py (gitignored)
 ├── uncleaned_data_csv/      # Raw FBref CSV exports (gitignored)
 └── data_html/               # Raw FBref HTML files for goalkeeping (gitignored)
@@ -162,4 +194,12 @@ scouting-report/
 | ETL | Python (pandas, pyarrow) |
 | Similarity model | NumPy (cosine similarity) |
 | App | Streamlit |
+| Charts | Plotly |
+| Tests | pytest, Streamlit AppTest |
 | Auth | GCP Application Default Credentials |
+
+---
+
+## Contributors
+
+Thomas Tsangou and Ajaiah Darlington.
