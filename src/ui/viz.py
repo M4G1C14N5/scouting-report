@@ -65,9 +65,9 @@ def _empty(message: str) -> go.Figure:
 def percentile_bars(rows: list[tuple[str, float, str]]) -> go.Figure:
     """Horizontal 0-100 percentile bars, one per metric, coloured by band.
 
-    The label reads "value · 87th · Elite": the raw value because a
-    percentile alone hides what it means, and the band in words so colour
-    is never the only cue."""
+    The label reads "value · 87th" with the band ("Elite") on a second line:
+    the raw value because a percentile alone hides what it means, and the
+    band in words so colour is never the only cue."""
     if not rows:
         return _empty("Not enough players in the pool to rank against")
     labels = [r[0] for r in rows]
@@ -80,7 +80,9 @@ def percentile_bars(rows: list[tuple[str, float, str]]) -> go.Figure:
     fig.add_bar(
         y=labels, x=pcts, orientation="h",
         marker=dict(color=[T.PCT_RAMP[b.index] for b in bands], cornerradius=2),
-        text=[f"{v} · {o} · {b.label}" for v, o, b in zip(values, ords, bands)],
+        # two lines ("0.64 · 92nd" over "Elite"): one long line gets clipped at
+        # the card edge when the metric names are long and the card is half width
+        text=[f"{v} · {o}<br>{b.label}" for v, o, b in zip(values, ords, bands)],
         textposition="outside", cliponaxis=False,
         textfont=dict(color=T.INK_2, size=11, family=T.FONT_BODY),
         customdata=[[v, o, b.label] for v, o, b in zip(values, ords, bands)],
@@ -92,7 +94,7 @@ def percentile_bars(rows: list[tuple[str, float, str]]) -> go.Figure:
         height=ROW_PX * len(rows) + 60,
         bargap=0.34,
         # headroom past 100 so the outside labels are never clipped
-        xaxis=_axis(range=[0, 165], tickvals=[0, 25, 50, 75, 100],
+        xaxis=_axis(range=[0, 215], tickvals=[0, 25, 50, 75, 100],
                     title=dict(text="Percentile in position pool", font=dict(color=T.MUTED, size=11))),
         yaxis=_axis(autorange="reversed", showgrid=False, tickfont=dict(color=T.INK_2, size=12)),
     ))

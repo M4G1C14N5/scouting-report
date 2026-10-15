@@ -24,8 +24,8 @@ def test_percentile_bars_colour_each_bar_by_band():
 
 def test_percentile_bars_label_value_percentile_and_band_as_text():
     fig = viz.percentile_bars(ROWS)
-    assert list(fig.data[0].text) == ["1 · 10th · Poor", "2 · 30th · Below avg",
-                                      "3 · 60th · Above avg", "4 · 90th · Elite"]
+    assert list(fig.data[0].text) == ["1 · 10th<br>Poor", "2 · 30th<br>Below avg",
+                                      "3 · 60th<br>Above avg", "4 · 90th<br>Elite"]
     assert fig.data[0].hovertemplate.endswith("<extra></extra>")
     assert fig.data[0].textfont.color == theme.INK_2  # text never wears a series colour
 

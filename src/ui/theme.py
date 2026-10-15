@@ -86,13 +86,13 @@ CSS = f"""
             border: 1px solid {BORDER}; color: {INK_2}; font-size: .75rem; font-weight: 600;
             letter-spacing: .02em; }}
 .fl-chip-accent {{ color: {ACCENT}; border-color: rgba(184,240,90,0.35); background: rgba(184,240,90,0.08); }}
-.fl-kpi-row {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: .6rem;
+.fl-kpi-row {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: .6rem;
                margin-bottom: 1rem; }}
 .fl-kpi {{ background: {SURFACE}; border: 1px solid {BORDER}; border-left: 3px solid {ACCENT};
-           border-radius: {RADIUS}; padding: .7rem .9rem; }}
+           border-radius: {RADIUS}; padding: .65rem .6rem; }}
 .fl-kpi-label {{ display: flex; align-items: center; font-size: .7rem; text-transform: uppercase;
                  letter-spacing: .09em; color: {MUTED}; font-weight: 600; }}
-.fl-kpi-value {{ font-family: {FONT_DISPLAY}; font-size: 2rem; font-weight: 700; line-height: 1.1;
+.fl-kpi-value {{ font-family: {FONT_DISPLAY}; font-size: 1.75rem; font-weight: 700; line-height: 1.1;
                  color: {INK}; font-variant-numeric: tabular-nums; }}
 .fl-kpi-sub {{ font-size: .74rem; color: {INK_2}; }}
 

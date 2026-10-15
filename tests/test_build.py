@@ -121,8 +121,8 @@ def test_kpi_tiles_outfield_and_goalkeeper():
     gk = build.kpi_tiles(pd.Series({"minutes": 2700, "nineties_played": 30.0, "save_pct": 71.24,
                                     "goals_against_per_90": 1.0333, "clean_sheet_pct": 33.3,
                                     "saves": 90}), "GK")
-    assert [lbl for lbl, _, _ in gk] == ["Minutes", "90s", "Save %", "Goals against / 90",
-                                         "Clean sheet %", "Saves / 90"]
+    assert [lbl for lbl, _, _ in gk] == ["Minutes", "90s", "Save %", "GA / 90",
+                                         "CS %", "Saves / 90"]
     assert gk[2][1] == "71.2%" and gk[3][1] == "1.03" and gk[5][1] == "3.00"
     assert gk[5][2] == "Saves divided by 90s played."
 

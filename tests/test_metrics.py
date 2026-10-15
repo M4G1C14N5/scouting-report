@@ -93,3 +93,10 @@ def test_helpers():
     assert metrics.stats_categories("GK") == ["Goalkeeping", "Playing time"]
     assert metrics.stats_categories("ATT") == ["Shooting", "Passing", "Defending", "Progression",
                                                "Discipline", "Playing time"]
+
+
+def test_duplicate_stat_columns_are_hidden_from_the_stats_tab():
+    # xag (standard table) and expected_assisted_goals (passing table) are the same number
+    assert "expected_assisted_goals" in metrics.STAT_LABELS
+    assert "expected_assisted_goals" not in metrics.keys_in_category("Passing")
+    assert "xag" in metrics.keys_in_category("Passing")

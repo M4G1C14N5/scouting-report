@@ -20,9 +20,12 @@ COLUMN_CONFIG = {
     "Position": st.column_config.TextColumn("Position"),
     "Minutes": st.column_config.NumberColumn("Minutes", format="localized"),
     "Similarity": st.column_config.ProgressColumn(
-        "Similarity", min_value=0.0, max_value=1.0, format="%.2f", color=theme.ACCENT,
+        "Similarity", min_value=0.0, max_value=1.0, format="%.2f", color=theme.ACCENT, width=120,
         help="1.00 = an identical statistical profile"),
 }
+# Position is the same for every row (the pool is one position), so leave it
+# out to give the other columns room.
+COLUMN_ORDER = ["Player", "Club", "League", "Season", "Minutes", "Similarity"]
 
 
 def render(bq, pool: pd.DataFrame | None, row) -> None:
@@ -57,9 +60,10 @@ def render(bq, pool: pd.DataFrame | None, row) -> None:
     if st.session_state.get(state.SIMILAR_FOR) != (player, season):
         st.session_state.pop(state.SIMILAR_TABLE, None)
         st.session_state[state.SIMILAR_FOR] = (player, season)
-    event = st.dataframe(table, hide_index=True, width="stretch", on_select="rerun",
+    shown = table.assign(Season=table["Season"].map(stats.short_season))  # "2023-24", like the rest of the app
+    event = st.dataframe(shown, hide_index=True, width="stretch", on_select="rerun",
                          selection_mode="single-row", key=state.SIMILAR_TABLE,
-                         column_config=COLUMN_CONFIG)
+                         column_config=COLUMN_CONFIG, column_order=COLUMN_ORDER)
     rows = list(event.selection.rows) if event is not None else []
     picked = [i for i in rows if i < len(table)]
     if not picked:

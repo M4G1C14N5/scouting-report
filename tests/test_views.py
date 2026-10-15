@@ -90,7 +90,7 @@ def test_header_outfield_identity_and_kpis():
 
 def test_header_goalkeeper_kpis():
     md = _markdown(_run(header_script, "Alisson", fakes.LATEST))
-    for text in ("Goalkeeper", "Save %", "Goals against / 90", "Clean sheet %", "Saves / 90"):
+    for text in ("Goalkeeper", "Save %", "GA / 90", "CS %", "Saves / 90"):
         assert text in md, text
 
 
@@ -151,6 +151,7 @@ def test_similar_table_and_method_line(stub_similar):
     assert len(table) == 5 and table.iloc[0]["Player"] == "Erling Haaland"
     assert at.slider(key="top_n").value == 10
     assert len(at.get("plotly_chart")) == 0  # nothing selected yet
+    assert not table["Season"].str.contains("-20").any()  # short form, "2023-24"
 
 
 def test_similar_selection_shows_dumbbell_and_view_profile_jumps(stub_similar):
@@ -201,3 +202,15 @@ def test_similar_selection_is_cleared_when_the_player_changes(stub_similar):
     assert not at.exception, at.exception
     assert len(at.get("plotly_chart")) == 0
     assert all(b.key != "view_profile" for b in at.button)
+
+
+def test_stats_display_table_leaves_missing_values_blank():
+    import pandas as pd
+    from src.ui.views import stats_tab
+
+    table = pd.DataFrame({"Stat": ["Goals", "Shot Accuracy %", "xG / 90"],
+                          "Total": [1234.0, 43.9, float("nan")],
+                          "Per 90": [0.64, float("nan"), 0.75]})
+    out = stats_tab.display_table(table)
+    assert list(out["Total"]) == ["1,234", "43.9", ""]
+    assert list(out["Per 90"]) == ["0.64", "", "0.75"]

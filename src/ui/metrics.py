@@ -195,8 +195,8 @@ KPI_TILES: dict[str, tuple[KpiSpec, ...]] = {
     ),
     "GK": (
         KpiSpec("Minutes", "minutes"), KpiSpec("90s", "nineties_played"),
-        KpiSpec("Save %", "save_pct"), KpiSpec("Goals against / 90", "goals_against_per_90"),
-        KpiSpec("Clean sheet %", "clean_sheet_pct"), KpiSpec("Saves / 90", "saves", per90=True),
+        KpiSpec("Save %", "save_pct"), KpiSpec("GA / 90", "goals_against_per_90"),
+        KpiSpec("CS %", "clean_sheet_pct"), KpiSpec("Saves / 90", "saves", per90=True),
     ),
 }
 
@@ -221,8 +221,14 @@ def fmt_of(key: str) -> str:
     return KIND_FORMAT[KIND.get(key, "ratio")]
 
 
+# Same quantity, loaded from two FBref tables (standard and passing): the Stats
+# tab shows the first and hides the copy.
+DUPLICATE_OF = {"expected_assisted_goals": "xag"}
+
+
 def keys_in_category(category: str) -> list[str]:
-    return [key for key, cat in STAT_CATEGORIES.items() if cat == category]
+    return [key for key, cat in STAT_CATEGORIES.items()
+            if cat == category and key not in DUPLICATE_OF]
 
 
 def stats_categories(group: str) -> list[str]:
