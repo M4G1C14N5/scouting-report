@@ -19,6 +19,7 @@ def _def_pool() -> pd.DataFrame:
     return pd.DataFrame({
         "Player": ["A", "B", "C", "D"],
         "Season": ["2023-2024"] * 4,
+        "nineties_played": [10.0] * 4,
         "tackles_total": [10, 20, 30, 40],
         "errors_leading_to_shot": [0, 1, 2, 3],
         "tackles_won": [5, 6, np.nan, 8],
@@ -32,8 +33,10 @@ def test_profile_rows_inverts_lower_is_better_stats():
     defending = {r.key: r for r in rows["Defending"]}
     assert defending["tackles_total"].pct == 87.5
     assert defending["errors_leading_to_shot"].pct == 12.5  # most errors = worst
-    assert defending["tackles_total"].label == "Tackles"
-    assert defending["tackles_total"].value == 40.0
+    assert defending["tackles_total"].label == "Tackles / 90"
+    assert defending["tackles_total"].value == 4.0  # 40 tackles over 10 nineties
+    assert defending["tackles_total"].text == "4.00"
+    assert defending["errors_leading_to_shot"].label == "Errors Leading to Shot / 90"
 
 
 def test_profile_rows_skip_missing_values_columns_and_empty_categories():
@@ -72,6 +75,46 @@ def test_profile_rows_never_hand_none_or_nan_to_callers():
             for r in rows:
                 assert r.pct is not None and not np.isnan(r.pct)
                 assert r.value is not None and not np.isnan(r.value)
+
+
+def test_profile_rows_rank_counting_stats_per_90_not_by_season_total():
+    pool = pd.DataFrame({
+        "Player": ["Low minutes", "High minutes", "Mid"],
+        "nineties_played": [5.0, 30.0, 20.0],
+        "tackles_total": [30, 60, 20],       # per 90: 6.0, 2.0, 1.0
+        "goals_per_90": [0.1, 0.2, 0.3],
+        "clean_sheets": [1, 9, 4],
+    })
+    low = build.profile_rows(pool, pool.iloc[0], "DEF")["Defending"][0]
+    high = build.profile_rows(pool, pool.iloc[1], "DEF")["Defending"][0]
+    assert low.key == high.key == "tackles_total"
+    assert low.pct > high.pct and low.value == 6.0 and low.text == "6.00"
+    # stored per-90 columns are ranked as they are and keep their label
+    shooting = build.profile_rows(pool, pool.iloc[0], "DEF")["Shooting"][0]
+    assert (shooting.label, shooting.text, shooting.value) == ("Goals / 90", "0.10", 0.1)
+    # tallies stay raw totals
+    gk_pool = pool.assign(save_pct=[70.0, 75.0, 80.0])
+    gk = {r.key: r for r in build.profile_rows(gk_pool, gk_pool.iloc[1], "GK")["Goalkeeping"]}
+    assert gk["clean_sheets"].label == "Clean Sheets" and gk["clean_sheets"].text == "9"
+    assert gk["clean_sheets"].pct > 50 and gk["save_pct"].text == "75.0%"
+
+
+def test_profile_rows_per_90_pool_skips_rows_without_90s():
+    pool = pd.DataFrame({
+        "Player": ["A", "B", "Zero", "Blank"],
+        "nineties_played": [10.0, 10.0, 0.0, np.nan],
+        "tackles_total": [10, 20, 500, 500],  # the last two would top a raw ranking
+    })
+    row = build.profile_rows(pool, pool.iloc[1], "DEF")["Defending"][0]
+    assert row.pct == 75.0  # ranked against two valid rows: beats A, ties itself
+    assert build.profile_rows(pool, pool.iloc[2], "DEF") == {}  # a player with 0 nineties has no per-90
+    assert build.profile_rows(pool.drop(columns="nineties_played"), pool.iloc[1], "DEF") == {}
+
+
+def test_profile_row_labels_never_double_the_per_90_suffix():
+    pool = _def_pool()
+    for rows in build.profile_rows(pool, pool.iloc[3], "DEF").values():
+        assert all(not r.label.endswith("/ 90 / 90") for r in rows)
 
 
 def test_compare_lists_keeps_shared_metrics_in_a_order():

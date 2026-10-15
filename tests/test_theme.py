@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import tomllib
 from pathlib import Path
 
@@ -97,3 +98,38 @@ def test_every_html_helper_is_a_single_line():
     ]
     for html in outputs:
         assert "\n" not in html
+
+
+class _FakeSt:
+    """Records the calls error_box makes on streamlit."""
+
+    def __init__(self):
+        self.calls = []
+
+    def error(self, message):
+        self.calls.append(("error", message))
+
+    def expander(self, label):
+        self.calls.append(("expander", label))
+        return contextlib.nullcontext()
+
+    def code(self, text, language=None):
+        self.calls.append(("code", text))
+
+
+def test_error_box_hides_exception_text_by_default(monkeypatch):
+    monkeypatch.delenv("PROFILER_DEBUG", raising=False)
+    st = _FakeSt()
+    theme.error_box(st, "Couldn't load.", RuntimeError("SELECT secret FROM sa@proj.iam"))
+    assert st.calls == [("error", "Couldn't load.")]
+
+
+def test_error_box_shows_details_only_when_debugging(monkeypatch):
+    monkeypatch.setenv("PROFILER_DEBUG", "1")
+    st = _FakeSt()
+    theme.error_box(st, "Couldn't load.", RuntimeError("boom"))
+    assert ("expander", "Error details") in st.calls and ("code", "RuntimeError: boom") in st.calls
+    monkeypatch.setenv("PROFILER_DEBUG", "0")
+    off = _FakeSt()
+    theme.error_box(off, "Couldn't load.", RuntimeError("boom"))
+    assert off.calls == [("error", "Couldn't load.")]

@@ -145,6 +145,7 @@ def test_season_switch_recovers_when_season_filter_narrows(stub_data):
     at.button_group(key="f_season").set_value(fakes.LATEST).run()
     assert not at.exception
     assert at.session_state["player_pick"] == "Mohamed Salah"
+    assert at.session_state["season_switch"] == fakes.LATEST  # fell back from the filtered-out season
     assert "vs 6 forwards in 2023-24, 450+ minutes" in _captions(at)  # only 2023-24 is in view
 
 

@@ -94,7 +94,8 @@ def percentile_bars(rows: list[tuple[str, float, str]]) -> go.Figure:
         height=ROW_PX * len(rows) + 60,
         bargap=0.34,
         # headroom past 100 so the outside labels are never clipped
-        xaxis=_axis(range=[0, 215], tickvals=[0, 25, 50, 75, 100],
+        # tickangle 0: a long metric name narrows the plot and Plotly would rotate the ticks
+        xaxis=_axis(range=[0, 215], tickvals=[0, 25, 50, 75, 100], tickangle=0,
                     title=dict(text="Percentile in position pool", font=dict(color=T.MUTED, size=11))),
         yaxis=_axis(autorange="reversed", showgrid=False, tickfont=dict(color=T.INK_2, size=12)),
     ))
@@ -117,13 +118,20 @@ def compare_dumbbell(metrics: list[str], a_vals: list[float], b_vals: list[float
     for metric, a, b in zip(metrics, a_vals, b_vals):
         fig.add_scatter(x=[a, b], y=[metric, metric], mode="lines",
                         line=dict(color=LINK, width=2), hoverinfo="skip", showlegend=False)
-    for vals, name, color in ((a_vals, a_name, T.PLAYER), (b_vals, b_name, T.COMPARE)):
-        fig.add_scatter(
-            x=list(vals), y=list(metrics), mode="markers", name=name,
-            marker=dict(color=color, size=12, line=dict(color=T.SURFACE, width=2)),
-            customdata=[stats.pct_label(v) for v in vals],
-            hovertemplate="%{fullData.name}<br>%{y}: %{customdata} percentile<extra></extra>",
-        )
+    hover = "%{fullData.name}<br>%{y}: %{customdata} percentile<extra></extra>"
+    # B is a hollow ring drawn first, A a smaller filled dot drawn on top: tied
+    # or near-tied percentiles show the ring around the dot instead of one
+    # marker hiding the other. legendrank keeps the legend reading A then B.
+    fig.add_scatter(
+        x=list(b_vals), y=list(metrics), mode="markers", name=b_name, legendrank=2,
+        marker=dict(symbol="circle-open", color=T.COMPARE, size=17, line=dict(color=T.COMPARE, width=2.5)),
+        customdata=[stats.pct_label(v) for v in b_vals], hovertemplate=hover,
+    )
+    fig.add_scatter(
+        x=list(a_vals), y=list(metrics), mode="markers", name=a_name, legendrank=1,
+        marker=dict(symbol="circle", color=T.PLAYER, size=10, line=dict(color=T.SURFACE, width=1.5)),
+        customdata=[stats.pct_label(v) for v in a_vals], hovertemplate=hover,
+    )
     # Direct labels on the first row, in ink. Placement does not depend on the
     # pair: A's label sits above its dot, B's below, both centred, so two close
     # or tied dots never overlap their labels. The label x is clamped so centred
@@ -136,6 +144,7 @@ def compare_dumbbell(metrics: list[str], a_vals: list[float], b_vals: list[float
     fig.update_layout(**_layout(
         height=max(220, DUMBBELL_ROW_PX * len(metrics) + 90),
         showlegend=True,
+        hovermode="y unified",  # tied dots hover as one tooltip listing both players
         margin=dict(l=8, r=8, t=48, b=8),  # room for the first row's label above its dot
         # slight padding so the end dots (and their outline) are not cut at 0/100
         xaxis=_axis(range=[-4, 104], tickvals=[0, 25, 50, 75, 100],

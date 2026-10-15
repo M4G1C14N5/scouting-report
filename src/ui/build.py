@@ -16,7 +16,8 @@ class PctRow(NamedTuple):
     key: str
     label: str
     pct: float
-    value: float
+    value: float  # raw value, or the per-90 rate when the row is ranked per 90
+    text: str = ""  # display text for `value` (two decimals for a per-90 rate)
 
 
 def fmt_value(key: str, value: Any) -> str:
@@ -27,6 +28,11 @@ def profile_rows(pool: pd.DataFrame, player_row: Mapping[str, Any],
                  group: str) -> dict[str, list[PctRow]]:
     """Percentile rows per category for the group's curated metrics.
 
+    Counting stats (the kinds metrics.PER90_COMPUTED_KINDS) are ranked per 90
+    minutes: a raw season total mostly measures minutes played. Pool rows
+    without 90s played drop out of those rankings. Stored per-90 columns,
+    tallies, rates and ratios are ranked as they are.
+
     Metrics missing from the pool or blank for the player are skipped, and
     so are categories left empty."""
     out: dict[str, list[PctRow]] = {}
@@ -35,14 +41,28 @@ def profile_rows(pool: pd.DataFrame, player_row: Mapping[str, Any],
         for key in keys:
             if key not in pool.columns:
                 continue
-            value = stats.to_float(player_row.get(key))
-            if value is None:
-                continue
-            pct = stats.percentile_of(pool[key], value,
-                                      higher_is_better=key not in metrics.LOWER_IS_BETTER)
+            higher_is_better = key not in metrics.LOWER_IS_BETTER
+            if metrics.KIND.get(key) in metrics.PER90_COMPUTED_KINDS:
+                if "nineties_played" not in pool.columns:
+                    continue
+                value = stats.per90(player_row.get(key), player_row.get("nineties_played"))
+                if value is None:
+                    continue
+                nineties = pd.to_numeric(pool["nineties_played"], errors="coerce")
+                ranked = pd.to_numeric(pool[key], errors="coerce") / nineties.where(nineties > 0)
+                label = metrics.label(key)
+                if not label.endswith("/ 90"):
+                    label = f"{label} / 90"
+                text = stats.fmt_number(value, "dec2")
+            else:
+                value = stats.to_float(player_row.get(key))
+                if value is None:
+                    continue
+                ranked, label, text = pool[key], metrics.label(key), fmt_value(key, value)
+            pct = stats.percentile_of(ranked, value, higher_is_better=higher_is_better)
             if pct is None:
                 continue
-            rows.append(PctRow(key, metrics.label(key), pct, value))
+            rows.append(PctRow(key, label, pct, value, text))
         if rows:
             out[category] = rows
     return out

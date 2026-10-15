@@ -10,7 +10,7 @@ from src.ui import build, metrics, stats, theme, viz
 
 BAND_KEY = ("Bands: Elite 75th+ · Above avg 50th-74th · Below avg 25th-49th · Poor under 25th. "
             "Stats where lower is better (errors, cards, goals against) are inverted, "
-            "so a longer bar is always better.")
+            "so a longer bar is always better. Counting stats are ranked per 90 minutes.")
 
 
 def render(pool: pd.DataFrame | None, player: str, season: str, group: str) -> None:
@@ -39,7 +39,7 @@ def render(pool: pd.DataFrame | None, player: str, season: str, group: str) -> N
         for col, (category, rows) in zip(cols, cards[start:start + 2]):
             with col, st.container(border=True, key=f"card_profile_{stats.slug(category)}"):
                 st.markdown(theme.card_title_html(category), unsafe_allow_html=True)
-                bars = [(r.label, r.pct, build.fmt_value(r.key, r.value)) for r in rows]
+                bars = [(r.label, r.pct, r.text) for r in rows]
                 st.plotly_chart(viz.percentile_bars(bars), config=viz.PLOTLY_CONFIG, theme=None,
                                 width="stretch", key=f"pct_{stats.slug(category)}")
     st.caption(BAND_KEY)

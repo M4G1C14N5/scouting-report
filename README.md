@@ -8,7 +8,7 @@ An end-to-end football analytics platform built on a professional GCP data stack
 
 - **Scrapes and cleans** player statistics from FBref across 5 stat categories (standard, shooting, passing, defending, goalkeeping)
 - **Loads data** into Google Cloud Storage and BigQuery via an automated ETL pipeline
-- **Computes similarity** between players using position-aware cosine similarity on z-scored per-90 stats
+- **Computes similarity** between players using position-aware cosine similarity on z-scored stats
 - **Visualises** player percentile rankings and similar players through a Streamlit app that queries BigQuery live
 
 ---
@@ -69,10 +69,10 @@ gcp_loader.py
 
 ## Similarity model
 
-Defined in `src/similarity.py`. Uses cosine similarity on z-scored per-90 stats.
+Defined in `src/similarity.py`. Uses cosine similarity on z-scored stats.
 
 1. Players are grouped into four pools by primary position: ATT, MID, DEF, GK
-2. Each pool has a curated feature template (15 stats for outfield, 5 for GK) focused on per-90 and rate metrics — raw counting stats are excluded to avoid penalising players with fewer minutes
+2. Each pool has a curated feature template (15 stats for outfield, 5 for GK) mixing per-90 and rate metrics with a few season totals (key passes, progressive carries, passes into the box)
 3. Feature columns are z-scored across the pool so no single stat dominates by scale
 4. Cosine similarity is computed between the query player and every other player in the same pool
 5. Results are returned ranked by similarity score, filtered to players with ≥ 450 minutes
@@ -88,7 +88,7 @@ Defined in `src/similarity.py`. Uses cosine similarity on z-scored per-90 stats.
 - Sidebar filters: season (or all seasons), league and club
 - Search for one player. Players with several seasons in view get a season switcher.
 - Identity card with headline numbers: goals, assists, xG and xAG, or save %, goals against per 90 and clean-sheet % for keepers
-- **Profile**: percentile bars against the same position and season (450+ minutes) on a curated metric list per position. Lower-is-better stats (errors, cards, goals against) are inverted.
+- **Profile**: percentile bars against the same position and season (450+ minutes) on a curated metric list per position. Lower-is-better stats (errors, cards, goals against) are inverted. Counting stats are ranked per 90 minutes.
 - **Stats**: every stat by category, with the season total next to per 90
 - **Similar players**: the similarity model's top matches. Select one to compare percentiles side by side and jump to their profile.
 
@@ -151,11 +151,11 @@ GCS_BUCKET  = "your-bucket-name"
 .venv/Scripts/python -m pytest
 ```
 
-**Refresh the README screenshots** (needs the app running on port 8599 and Playwright)
+**Refresh the README screenshots** (needs the app running on port 8599 and Playwright: `pip install playwright && playwright install chromium`)
 
 ```bash
 .venv/Scripts/python -m streamlit run app.py --server.headless true --server.port 8599
-C:/Python314/python scripts/screenshot.py
+python scripts/screenshot.py
 ```
 
 ---

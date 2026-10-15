@@ -15,6 +15,7 @@ through the st-key-card* class Streamlit adds from the key.
 from __future__ import annotations
 
 import html
+import os
 from typing import Iterable, Sequence
 
 from src.ui import stats
@@ -240,7 +241,9 @@ def footer_html(parts: Sequence[tuple[str, str]]) -> str:
 
 
 def error_box(st, message: str, exc: BaseException) -> None:
-    """Short readable error; the exception text sits in an expander."""
+    """Short readable error. The exception text (BigQuery errors can carry
+    query text and service-account names) is shown only when PROFILER_DEBUG=1."""
     st.error(message)
-    with st.expander("Error details"):
-        st.code(f"{type(exc).__name__}: {exc}", language=None)
+    if os.environ.get("PROFILER_DEBUG") == "1":
+        with st.expander("Error details"):
+            st.code(f"{type(exc).__name__}: {exc}", language=None)

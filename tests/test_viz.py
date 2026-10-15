@@ -39,6 +39,10 @@ def test_percentile_bars_size_axis_and_reference_line():
     assert any(shape.x0 == 50 for shape in fig.layout.shapes)
 
 
+def test_percentile_bars_keep_x_ticks_horizontal():
+    assert viz.percentile_bars(ROWS).layout.xaxis.tickangle == 0
+
+
 def test_percentile_bars_empty_state():
     fig = viz.percentile_bars([])
     assert fig.layout.annotations[0].text == "Not enough players in the pool to rank against"
@@ -48,8 +52,9 @@ def test_percentile_bars_empty_state():
 def test_dumbbell_uses_player_and_compare_colours_with_legend():
     fig = viz.compare_dumbbell(["Goals / 90", "xG / 90"], [80.0, 40.0], [30.0, 70.0], "Salah", "Kane")
     markers = [t for t in fig.data if t.mode == "markers"]
-    assert [t.name for t in markers] == ["Salah", "Kane"]
-    assert [t.marker.color for t in markers] == [theme.PLAYER, theme.COMPARE]
+    by_name = {t.name: t for t in markers}
+    assert by_name["Salah"].marker.color == theme.PLAYER and by_name["Kane"].marker.color == theme.COMPARE
+    assert [t.name for t in sorted(markers, key=lambda t: t.legendrank)] == ["Salah", "Kane"]
     assert fig.layout.showlegend is True
     assert all(t.hovertemplate.endswith("<extra></extra>") for t in markers)
     assert len([t for t in fig.data if t.mode == "lines"]) == 2  # one connector per metric
@@ -93,7 +98,8 @@ def test_dumbbell_labels_clamp_x_and_split_vertically(a, b, a_x, b_x):
 def test_dumbbell_dots_keep_their_true_value_when_label_is_clamped():
     fig = viz.compare_dumbbell(["m"], [97.0], [3.0], "Salah", "Kane")
     markers = [t for t in fig.data if t.mode == "markers"]
-    assert (list(markers[0].x), list(markers[1].x)) == ([97.0], [3.0])
+    by_name = {t.name: t for t in markers}
+    assert (list(by_name["Salah"].x), list(by_name["Kane"].x)) == ([97.0], [3.0])
 
 
 def test_dumbbell_top_margin_leaves_room_for_the_label_above():
@@ -104,7 +110,7 @@ def test_dumbbell_top_margin_leaves_room_for_the_label_above():
 def test_dumbbell_escapes_names_in_legend_and_labels():
     fig = viz.compare_dumbbell(["m"], [10.0], [20.0], "A<b>", "K&Co")
     markers = [t for t in fig.data if t.mode == "markers"]
-    assert [t.name for t in markers] == ["A&lt;b&gt;", "K&amp;Co"]
+    assert {t.name for t in markers} == {"A&lt;b&gt;", "K&amp;Co"}
     assert {a.text for a in fig.layout.annotations} == {"A&lt;b&gt;", "K&amp;Co"}
 
 
@@ -126,3 +132,17 @@ def test_dumbbell_hover_does_not_splice_the_name():
     fig = viz.compare_dumbbell(["m"], [10.0], [20.0], nasty, "Kane")
     markers = [t for t in fig.data if t.mode == "markers"]
     assert all("%{fullData.name}" in t.hovertemplate and nasty not in t.hovertemplate for t in markers)
+
+def test_dumbbell_tied_percentiles_stay_both_visible():
+    fig = viz.compare_dumbbell(["m"], [40.2], [40.2], "A", "B")
+    markers = [t for t in fig.data if t.mode == "markers"]
+    assert len(markers) == 2
+    a_idx = next(i for i, t in enumerate(fig.data) if t.name == "A")
+    b_idx = next(i for i, t in enumerate(fig.data) if t.name == "B")
+    assert a_idx > b_idx  # A is drawn after (on top of) B
+    a, b = fig.data[a_idx], fig.data[b_idx]
+    assert a.marker.symbol != b.marker.symbol and b.marker.symbol == "circle-open"
+    assert b.marker.size > a.marker.size
+    assert b.marker.color == theme.COMPARE and a.marker.line.color == theme.SURFACE
+    assert (a.legendrank, b.legendrank) == (1, 2)
+    assert fig.layout.hovermode == "y unified"
