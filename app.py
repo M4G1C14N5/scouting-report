@@ -1,7 +1,7 @@
 """
 app.py
 ======
-Football Player Profiler - Streamlit entry point.
+Scouting Hub - Streamlit entry point.
 
 Thin shell: page config, theme, hero, sidebar filters, player search and
 the three tabs. The rest lives in src/ui/ (metric config in
@@ -18,11 +18,11 @@ import streamlit as st
 from src.ui import data, theme
 from src.ui.views import header, picker, profile, similar, stats_tab
 
-st.set_page_config(page_title="Football Player Profiler", page_icon="⚽", layout="wide")
+st.set_page_config(page_title="Scouting Hub", page_icon="⚽", layout="wide")
 theme.inject(st)
 
-HERO_TITLE = "Football Player"
-HERO_HIGHLIGHT = "Profiler"
+HERO_TITLE = "Scouting"
+HERO_HIGHLIGHT = "Hub"
 HERO_SUB = "Big 5 leagues · 2017-18 to 2023-24 · 16.5k player-seasons"
 HERO_META = "FBref data, frozen snapshot · BigQuery"
 FOOTER_PARTS = (

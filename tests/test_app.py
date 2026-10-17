@@ -51,7 +51,7 @@ def _captions(at) -> str:
 def test_no_selection_shows_hero_onboarding_and_footer(stub_data):
     at = _app()
     md = _markdown(at)
-    assert "Football Player <em>Profiler</em>" in md
+    assert "Scouting <em>Hub</em>" in md
     assert "Big 5 leagues · 2017-18 to 2023-24 · 16.5k player-seasons" in md
     assert "Set the scope" in md and "Find a player" in md and "Read the profile" in md
     assert at.button(key="try_example").label == "Try an example: Mohamed Salah"

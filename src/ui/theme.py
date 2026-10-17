@@ -30,7 +30,7 @@ INK_2 = "#b6bcc2"       # secondary text
 MUTED = "#858c93"       # labels, captions
 GRID = "rgba(238,240,242,0.07)"  # chart gridlines
 # The ONE interface accent. Allowed only on: primaryColor (selected pills,
-# tabs, slider, focus), the hero/brand highlight word, the Elite band. Never
+# tabs, slider, focus), the hero/brand highlight word ("Hub"), the Elite band. Never
 # on structural chrome - that is RULE (tests/test_theme.py enforces it).
 ACCENT = "#b8f05a"
 RULE = "#c9cfd4"        # chalk structural accent: tile borders, section bars, hero rule, avatar ring, position chip
@@ -226,7 +226,7 @@ def hero_html(title: str, highlight: str, sub: str, meta: str) -> str:
 
 
 def brand_html() -> str:
-    return ('<div class="fl-brand">⚽ Player <em>Profiler</em></div>'
+    return ('<div class="fl-brand">⚽ Scouting <em>Hub</em></div>'
             '<div class="fl-brand-sub">Big 5 leagues · FBref 2017-18 to 2023-24</div>')
 
 

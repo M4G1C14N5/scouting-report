@@ -1,4 +1,4 @@
-"""Review screenshots of the running Profiler (spec: 1200x750 at 2x).
+"""Review screenshots of the running Scouting Hub app (spec: 1200x750 at 2x).
 
 1. Start the app against real BigQuery (gcloud ADC must be set up):
        .venv\\Scripts\\python -m streamlit run app.py --server.headless true --server.port 8599

@@ -1,4 +1,4 @@
-# Football Scouting Report
+# Scouting Hub
 
 An end-to-end football analytics platform built on a professional GCP data stack. Covers 7 seasons (2017–2024) of player statistics across Europe's Big 5 leagues, with a player similarity model and an interactive Streamlit scouting app backed by BigQuery.
 
@@ -83,7 +83,7 @@ Defined in `src/similarity.py`. Uses cosine similarity on z-scored stats.
 
 ## App
 
-`app.py` runs the **Football Player Profiler**, a Streamlit app that queries BigQuery live (results are cached for an hour).
+`app.py` runs **Scouting Hub**, a Streamlit app that queries BigQuery live (results are cached for an hour).
 
 - Sidebar filters: season (or all seasons), league and club
 - Search for one player. Players with several seasons in view get a season switcher.
@@ -166,7 +166,7 @@ python scripts/screenshot.py
 scouting-report/
 ├── run_cleaning.py          # Pipeline entry point — cleans all datasets
 ├── gcp_loader.py            # Uploads to GCS, loads into BigQuery, rebuilds feature tables
-├── app.py                   # Streamlit app shell (Football Player Profiler)
+├── app.py                   # Streamlit app shell (Scouting Hub)
 ├── schema.sql               # Full BigQuery DDL (raw tables + feature tables + percentile views)
 ├── requirements.txt
 ├── requirements-dev.txt     # + pytest

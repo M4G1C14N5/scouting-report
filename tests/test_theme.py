@@ -37,7 +37,7 @@ def test_accent_is_not_used_on_structural_chrome():
 
 
 def test_accent_appears_only_on_the_brand_words():
-    # lime in the injected CSS: the hero word and the sidebar brand word, nothing else
+    # lime in the injected CSS: the hero word and the sidebar brand word ("Hub"), nothing else
     lines = [ln for ln in theme.CSS.splitlines() if theme.ACCENT in ln]
     assert len(lines) == 2
     assert any(ln.startswith(".fl-hero-title em") for ln in lines)
@@ -105,8 +105,8 @@ def test_avatar_identity_and_hero():
     assert ">MS</span>" in theme.avatar_html("Mohamed Salah")
     ident = theme.identity_html("Mohamed Salah", [theme.chip("Liverpool")])
     assert "fl-name" in ident and "Mohamed Salah" in ident and "Liverpool" in ident
-    hero = theme.hero_html("Football Player", "Profiler", "sub line", "meta line")
-    assert "Football Player <em>Profiler</em>" in hero and "sub line" in hero and "meta line" in hero
+    hero = theme.hero_html("Scouting", "Hub", "sub line", "meta line")
+    assert "Scouting <em>Hub</em>" in hero and hero.count("<em>") == 1 and "sub line" in hero and "meta line" in hero
 
 
 def test_steps_empty_state_footer_and_labels():
@@ -117,7 +117,8 @@ def test_steps_empty_state_footer_and_labels():
     footer = theme.footer_html([("Data", "FBref"), ("Built by", "Thomas Tsangou and Ajaiah Darlington")])
     assert "<strong>Built by</strong> Thomas Tsangou and Ajaiah Darlington" in footer
     assert "fl-label" in theme.section_label_html("Season")
-    assert "Profiler" in theme.brand_html()
+    brand = theme.brand_html()
+    assert "Scouting <em>Hub</em>" in brand and brand.count("<em>") == 1
 
 
 def test_every_html_helper_is_a_single_line():
