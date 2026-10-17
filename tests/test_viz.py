@@ -33,7 +33,7 @@ def test_percentile_bars_label_value_percentile_and_band_as_text():
 def test_percentile_bars_size_axis_and_reference_line():
     fig = viz.percentile_bars(ROWS)
     assert fig.layout.height == viz.ROW_PX * 4 + 60
-    assert tuple(fig.layout.xaxis.range) == (0, 215)  # headroom for the outside labels
+    assert tuple(fig.layout.xaxis.range) == (0, viz.PCT_X_MAX)  # headroom for the outside labels
     assert fig.layout.xaxis.fixedrange is True and fig.layout.yaxis.fixedrange is True
     assert fig.layout.yaxis.autorange == "reversed"
     assert any(shape.x0 == 50 for shape in fig.layout.shapes)
@@ -43,12 +43,33 @@ def test_percentile_bars_keep_x_ticks_horizontal():
     assert viz.percentile_bars(ROWS).layout.xaxis.tickangle == 0
 
 
-def test_percentile_bars_show_only_0_50_100_ticks_horizontally():
-    # five ticks crowd into "0 255075100" on narrow cards with long metric names
+def test_percentile_bars_show_five_horizontal_ticks():
     xaxis = viz.percentile_bars(ROWS).layout.xaxis
-    assert list(xaxis.tickvals) == [0, 50, 100]
+    assert list(xaxis.tickvals) == [0, 25, 50, 75, 100]
     assert xaxis.tickangle == 0
     assert xaxis.title.text == "Percentile in position pool"
+
+
+def test_percentile_bars_range_leaves_label_room_without_starving_the_track():
+    # under ~160 a 99th-percentile label clips on a half-width card; at 215 the
+    # 0-100 track was too short for five ticks ("0 255075100")
+    assert viz.PCT_X_MAX == 165
+    assert tuple(viz.percentile_bars(ROWS).layout.xaxis.range) == (0, 165)
+
+
+def test_percentile_bars_wrap_long_metric_names_but_hover_the_full_name():
+    rows = [("Progressive Pass Distance / 90", 85.0, "113.94"), ("Save %", 50.0, "70.0%")]
+    bar = viz.percentile_bars(rows).data[0]
+    assert list(bar.y) == ["Progressive Pass<br>Distance / 90", "Save %"]
+    assert bar.customdata[0][3] == "Progressive Pass Distance / 90"
+    assert "%{customdata[3]}" in bar.hovertemplate and "%{y}" not in bar.hovertemplate
+
+
+def test_wrap_label_splits_at_the_space_nearest_the_middle():
+    assert viz._wrap_label("Shots on Target / 90") == "Shots on Target / 90"  # 20 chars: kept
+    assert viz._wrap_label("Tackles + Interceptions") == "Tackles +<br>Interceptions"
+    assert viz._wrap_label("Shots on Target Against / 90") == "Shots on Target<br>Against / 90"
+    assert viz._wrap_label("Supercalifragilisticexpialidocious") == "Supercalifragilisticexpialidocious"
 
 
 def test_percentile_bars_empty_state():

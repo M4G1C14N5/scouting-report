@@ -22,6 +22,14 @@ DUMBBELL_ROW_PX = 34
 LINK = "rgba(238,240,242,0.22)"  # dumbbell connector
 LABEL_SHIFT = 14       # px above/below a dot for its direct label
 LABEL_X_MIN, LABEL_X_MAX = 10, 90  # keep centred labels inside the plot
+# Percentile-bar x range upper bound: the bars use 0-100, the rest is room for
+# the two-line value label ("654.36 · 99th" over "Elite") drawn past the bar end.
+# Lower gives the 0-100 track (and its five ticks) more width; too low and a
+# label on a 99th-percentile bar is cut off at the card edge on a half-width card.
+PCT_X_MAX = 165
+# Metric names longer than this wrap onto two lines, so one long name
+# ("Progressive Pass Distance / 90") cannot squeeze the plot of its whole card.
+PCT_LABEL_WRAP = 20
 
 
 def _axis(**overrides) -> dict:
@@ -62,6 +70,15 @@ def _empty(message: str) -> go.Figure:
     return fig
 
 
+def _wrap_label(text: str, width: int = PCT_LABEL_WRAP) -> str:
+    """Split a long axis label at the space nearest its middle ("a b c d" -> "a b<br>c d")."""
+    if len(text) <= width or " " not in text:
+        return text
+    mid = len(text) / 2
+    cut = min((i for i, ch in enumerate(text) if ch == " "), key=lambda i: abs(i - mid))
+    return f"{text[:cut]}<br>{text[cut + 1:]}"
+
+
 def percentile_bars(rows: list[tuple[str, float, str]]) -> go.Figure:
     """Horizontal 0-100 percentile bars, one per metric, coloured by band.
 
@@ -78,26 +95,25 @@ def percentile_bars(rows: list[tuple[str, float, str]]) -> go.Figure:
 
     fig = go.Figure()
     fig.add_bar(
-        y=labels, x=pcts, orientation="h",
+        y=[_wrap_label(name) for name in labels], x=pcts, orientation="h",
         marker=dict(color=[T.PCT_RAMP[b.index] for b in bands], cornerradius=2),
         # two lines ("0.64 · 92nd" over "Elite"): one long line gets clipped at
         # the card edge when the metric names are long and the card is half width
         text=[f"{v} · {o}<br>{b.label}" for v, o, b in zip(values, ords, bands)],
         textposition="outside", cliponaxis=False,
         textfont=dict(color=T.INK_2, size=11, family=T.FONT_BODY),
-        customdata=[[v, o, b.label] for v, o, b in zip(values, ords, bands)],
-        hovertemplate="%{y}: %{customdata[0]}<br>%{customdata[1]} percentile · %{customdata[2]}<extra></extra>",
+        customdata=[[v, o, b.label, name] for v, o, b, name in zip(values, ords, bands, labels)],
+        hovertemplate=("%{customdata[3]}: %{customdata[0]}<br>"
+                       "%{customdata[1]} percentile · %{customdata[2]}<extra></extra>"),
         showlegend=False,
     )
     fig.add_vline(x=50, line_color=T.MUTED, line_width=1, line_dash="dot")
     fig.update_layout(**_layout(
         height=ROW_PX * len(rows) + 60,
         bargap=0.34,
-        # headroom past 100 so the outside labels are never clipped
+        # headroom past 100 (PCT_X_MAX) so the outside labels are never clipped
         # tickangle 0: a long metric name narrows the plot and Plotly would rotate the ticks
-        # only 0/50/100: the 0-100 scale fills under half of the [0, 215] range, so on
-        # narrow cards five ticks crowd into each other ("0 255075100")
-        xaxis=_axis(range=[0, 215], tickvals=[0, 50, 100], tickangle=0,
+        xaxis=_axis(range=[0, PCT_X_MAX], tickvals=[0, 25, 50, 75, 100], tickangle=0,
                     title=dict(text="Percentile in position pool", font=dict(color=T.MUTED, size=11))),
         yaxis=_axis(autorange="reversed", showgrid=False, tickfont=dict(color=T.INK_2, size=12)),
     ))
