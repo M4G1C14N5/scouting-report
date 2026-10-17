@@ -95,7 +95,9 @@ def percentile_bars(rows: list[tuple[str, float, str]]) -> go.Figure:
         bargap=0.34,
         # headroom past 100 so the outside labels are never clipped
         # tickangle 0: a long metric name narrows the plot and Plotly would rotate the ticks
-        xaxis=_axis(range=[0, 215], tickvals=[0, 25, 50, 75, 100], tickangle=0,
+        # only 0/50/100: the 0-100 scale fills under half of the [0, 215] range, so on
+        # narrow cards five ticks crowd into each other ("0 255075100")
+        xaxis=_axis(range=[0, 215], tickvals=[0, 50, 100], tickangle=0,
                     title=dict(text="Percentile in position pool", font=dict(color=T.MUTED, size=11))),
         yaxis=_axis(autorange="reversed", showgrid=False, tickfont=dict(color=T.INK_2, size=12)),
     ))

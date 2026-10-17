@@ -33,7 +33,7 @@ def test_percentile_bars_label_value_percentile_and_band_as_text():
 def test_percentile_bars_size_axis_and_reference_line():
     fig = viz.percentile_bars(ROWS)
     assert fig.layout.height == viz.ROW_PX * 4 + 60
-    assert tuple(fig.layout.xaxis.tickvals) == (0, 25, 50, 75, 100)
+    assert tuple(fig.layout.xaxis.range) == (0, 215)  # headroom for the outside labels
     assert fig.layout.xaxis.fixedrange is True and fig.layout.yaxis.fixedrange is True
     assert fig.layout.yaxis.autorange == "reversed"
     assert any(shape.x0 == 50 for shape in fig.layout.shapes)
@@ -41,6 +41,14 @@ def test_percentile_bars_size_axis_and_reference_line():
 
 def test_percentile_bars_keep_x_ticks_horizontal():
     assert viz.percentile_bars(ROWS).layout.xaxis.tickangle == 0
+
+
+def test_percentile_bars_show_only_0_50_100_ticks_horizontally():
+    # five ticks crowd into "0 255075100" on narrow cards with long metric names
+    xaxis = viz.percentile_bars(ROWS).layout.xaxis
+    assert list(xaxis.tickvals) == [0, 50, 100]
+    assert xaxis.tickangle == 0
+    assert xaxis.title.text == "Percentile in position pool"
 
 
 def test_percentile_bars_empty_state():
