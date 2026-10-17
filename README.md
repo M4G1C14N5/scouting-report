@@ -49,7 +49,7 @@ gcp_loader.py
 | Seasons | 2017-18 through 2023-24 |
 | Leagues | Premier League, La Liga, Serie A, Bundesliga, Ligue 1 |
 | Tables | Standard, Shooting, Passing, Defending, Goalkeeping |
-| Records | ~14,000 player-season observations |
+| Records | 16,532 player-seasons with 90+ minutes in BigQuery (15,184 outfield + 1,348 goalkeeper); 13,773 with 450+ minutes, the cut-off used for percentiles and similarity |
 
 ---
 
@@ -197,6 +197,7 @@ scouting-report/
 | Charts | Plotly |
 | Tests | pytest, Streamlit AppTest |
 | Auth | GCP Application Default Credentials |
+| Packaging | Docker (`Dockerfile`, `docker-compose.yml`) |
 
 ---
 
