@@ -117,6 +117,14 @@ CSS = f"""
                   transition: opacity .12s ease; }}
 .fl-tip:hover::after, .fl-tip:focus::after {{ opacity: 1; }}
 
+/* ---- percentile band key (Profile tab): one row per band, caption-sized ---- */
+.fl-band-key {{ margin: .4rem 0 .8rem; font-size: .78rem; line-height: 1.45; color: {MUTED}; }}
+.fl-band-row {{ display: flex; align-items: center; gap: .45rem; }}
+.fl-band-swatch {{ display: inline-block; flex: none; width: 10px; height: 10px; border-radius: {RADIUS}; }}
+.fl-band-label {{ min-width: 5.2rem; color: {INK_2}; font-weight: 600; }}
+.fl-band-range {{ color: {MUTED}; }}
+.fl-band-note {{ margin-top: .3rem; color: {MUTED}; }}
+
 /* ---- onboarding steps + empty states ---- */
 .fl-steps {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .75rem;
              margin: .5rem 0 1rem; }}
@@ -238,6 +246,27 @@ def steps_html(steps: Sequence[tuple[str, str]]) -> str:
 def empty_state_html(title: str, body: str) -> str:
     return (f'<div class="fl-empty"><div class="fl-empty-title">{esc(title)}</div>'
             f'<div class="fl-empty-body">{esc(body)}</div></div>')
+
+
+def band_ranges() -> tuple[str, ...]:
+    """Percentile range text per band, low to high, from stats.BAND_EDGES:
+    ("under 25th", "25th-49th", "50th-74th", "75th+")."""
+    edges = [int(e) for e in stats.BAND_EDGES]
+    middle = tuple(f"{stats.ordinal(lo)}-{stats.ordinal(hi - 1)}" for lo, hi in zip(edges, edges[1:]))
+    return (f"under {stats.ordinal(edges[0])}", *middle, f"{stats.ordinal(edges[-1])}+")
+
+
+def band_key_html(note: str = "") -> str:
+    """Stacked band key, best band first: a PCT_RAMP swatch, the band label and
+    its range on each row, then an optional muted note."""
+    rows = "".join(
+        f'<div class="fl-band-row"><span class="fl-band-swatch" style="background:{PCT_RAMP[i]}"></span>'
+        f'<span class="fl-band-label">{esc(stats.BAND_LABELS[i])}</span>'
+        f'<span class="fl-band-range">{esc(rng)}</span></div>'
+        for i, rng in reversed(list(enumerate(band_ranges())))
+    )
+    note_html = f'<div class="fl-band-note">{esc(note)}</div>' if note else ""
+    return f'<div class="fl-band-key">{rows}{note_html}</div>'
 
 
 def footer_html(parts: Sequence[tuple[str, str]]) -> str:

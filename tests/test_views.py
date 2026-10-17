@@ -102,13 +102,17 @@ def test_profile_outfield_cards_and_pool_caption():
     md = _markdown(at)
     assert "Shooting" in md and "Passing" in md and "Progression" in md
     assert len(at.get("plotly_chart")) == 3
-    assert "Elite 75th+" in _captions(at)
+    # the band key is a stacked HTML block now, not a one-line caption
+    assert "Elite 75th+" not in _captions(at)
+    assert md.count('class="fl-band-row"') == 4
+    assert "Counting stats are ranked per 90 minutes." in md
 
 
 def test_profile_goalkeeper():
     at = _run(profile_script, "Alisson", fakes.LATEST, "GK", False)
     assert "vs 4 goalkeepers in 2023-24, 450+ minutes" in _captions(at)
     assert len(at.get("plotly_chart")) == 1
+    assert _markdown(at).count('class="fl-band-row"') == 4
 
 
 def test_profile_player_below_threshold_gets_empty_state():

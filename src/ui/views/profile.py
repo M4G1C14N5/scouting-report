@@ -8,9 +8,8 @@ import streamlit as st
 from src.similarity import MIN_MINUTES
 from src.ui import build, metrics, stats, theme, viz
 
-BAND_KEY = ("Bands: Elite 75th+ · Above avg 50th-74th · Below avg 25th-49th · Poor under 25th. "
-            "Stats where lower is better (errors, cards, goals against) are inverted, "
-            "so a longer bar is always better. Counting stats are ranked per 90 minutes.")
+BAND_NOTE = ("Stats where lower is better (errors, cards, goals against) are inverted, "
+             "so a longer bar is always better. Counting stats are ranked per 90 minutes.")
 
 
 def render(pool: pd.DataFrame | None, player: str, season: str, group: str) -> None:
@@ -42,4 +41,4 @@ def render(pool: pd.DataFrame | None, player: str, season: str, group: str) -> N
                 bars = [(r.label, r.pct, r.text) for r in rows]
                 st.plotly_chart(viz.percentile_bars(bars), config=viz.PLOTLY_CONFIG, theme=None,
                                 width="stretch", key=f"pct_{stats.slug(category)}")
-    st.caption(BAND_KEY)
+    st.markdown(theme.band_key_html(BAND_NOTE), unsafe_allow_html=True)

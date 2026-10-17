@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import contextlib
+import re
 import tomllib
 from pathlib import Path
 
-from src.ui import theme
+from src.ui import stats, theme
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -125,10 +126,35 @@ def test_every_html_helper_is_a_single_line():
         theme.card_html("T", "<p>x</p>", "h"), theme.identity_html("A B", [theme.chip("c")]),
         theme.hero_html("a", "b", "c", "d"), theme.brand_html(), theme.section_label_html("x"),
         theme.steps_html([("a", "b")]), theme.empty_state_html("a", "b"),
-        theme.footer_html([("a", "b")]), theme.avatar_html("A B"),
+        theme.footer_html([("a", "b")]), theme.avatar_html("A B"), theme.band_key_html("n"),
     ]
     for html in outputs:
         assert "\n" not in html
+
+
+def test_band_key_stacks_four_bands_best_first_with_bar_colours():
+    key = theme.band_key_html("Counting stats are ranked per 90 minutes.")
+    assert "\n" not in key and key.startswith('<div class="fl-band-key">')
+    rows = re.findall(r'<div class="fl-band-row"><span class="fl-band-swatch" style="background:(#[0-9a-f]{6})">'
+                      r'</span><span class="fl-band-label">([^<]+)</span>'
+                      r'<span class="fl-band-range">([^<]+)</span></div>', key)
+    assert rows == [
+        (theme.PCT_RAMP[3], "Elite", "75th+"),
+        (theme.PCT_RAMP[2], "Above avg", "50th-74th"),
+        (theme.PCT_RAMP[1], "Below avg", "25th-49th"),
+        (theme.PCT_RAMP[0], "Poor", "under 25th"),
+    ]
+    assert [label for _, label, _ in rows] == list(reversed(stats.BAND_LABELS))
+    assert key.endswith('<div class="fl-band-note">Counting stats are ranked per 90 minutes.</div></div>')
+    assert "fl-band-note" not in theme.band_key_html()
+    assert "a &amp; b" in theme.band_key_html("a & b")
+
+
+def test_band_key_css_is_caption_sized_and_muted():
+    assert theme.MUTED in _rule(".fl-band-key") and "font-size: .78rem" in _rule(".fl-band-key")
+    assert theme.INK_2 in _rule(".fl-band-label")
+    assert theme.MUTED in _rule(".fl-band-note")
+    assert f"border-radius: {theme.RADIUS}" in _rule(".fl-band-swatch")
 
 
 class _FakeSt:
