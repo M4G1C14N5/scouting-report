@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 LOAD_MS = 180_000    # the first BigQuery load can be slow
 SETTLE_MS = 2_500    # let Plotly and the data grid finish drawing
 SEARCH_PLACEHOLDER = "Search a player, e.g. Salah"
-SURFACE_RGB = "rgb(17, 26, 21)"  # theme.SURFACE #111a15
+SURFACE_RGB = "rgb(22, 25, 28)"  # theme.SURFACE #16191c
 
 
 def settle(page: Page) -> None:

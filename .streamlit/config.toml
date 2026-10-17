@@ -1,13 +1,13 @@
-# Floodlight theme. Mirrors the tokens in src/ui/theme.py - keep the two in
+# Charcoal theme. Mirrors the tokens in src/ui/theme.py - keep the two in
 # sync (tests/test_theme.py checks it).
 [theme]
 base = "dark"
 primaryColor = "#b8f05a"              # ACCENT
-backgroundColor = "#0a110d"           # PAGE
-secondaryBackgroundColor = "#17231c"  # SURFACE_2: inputs and widgets
-textColor = "#ecf2ed"                 # INK
-borderColor = "#213028"               # BORDER: bordered containers, widgets
-linkColor = "#b8f05a"
+backgroundColor = "#0e1012"           # PAGE
+secondaryBackgroundColor = "#1d2125"  # SURFACE_2: inputs and widgets
+textColor = "#eef0f2"                 # INK
+borderColor = "#2a2f34"               # BORDER: bordered containers, widgets
+linkColor = "#c9cfd4"                # RULE
 # "<Family>:<Google Fonts URL>" - one family per URL, no fallback list allowed.
 font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
 headingFont = "Barlow Condensed:https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&display=swap"
@@ -16,12 +16,12 @@ baseRadius = "2px"
 buttonRadius = "2px"
 showSidebarBorder = true
 # The data grid draws into a <canvas>; these are the only hooks that reach it.
-dataframeHeaderBackgroundColor = "#17231c"  # SURFACE_2
-dataframeBorderColor = "#213028"            # BORDER
+dataframeHeaderBackgroundColor = "#1d2125"  # SURFACE_2
+dataframeBorderColor = "#2a2f34"            # BORDER
 
 [theme.sidebar]
-backgroundColor = "#111a15"           # SURFACE
-secondaryBackgroundColor = "#17231c"  # SURFACE_2
+backgroundColor = "#16191c"           # SURFACE
+secondaryBackgroundColor = "#1d2125"  # SURFACE_2
 
 [browser]
 gatherUsageStats = false

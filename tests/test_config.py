@@ -12,20 +12,20 @@ def _config() -> dict:
     return tomllib.loads((ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8"))
 
 
-def test_theme_mirrors_floodlight_tokens():
+def test_theme_mirrors_charcoal_tokens():
     cfg = _config()
     theme = cfg["theme"]
     assert theme["base"] == "dark"
     assert theme["primaryColor"] == "#b8f05a"
-    assert theme["backgroundColor"] == "#0a110d"
-    assert theme["secondaryBackgroundColor"] == "#17231c"
-    assert theme["textColor"] == "#ecf2ed"
-    assert theme["borderColor"] == "#213028"
+    assert theme["backgroundColor"] == "#0e1012"
+    assert theme["secondaryBackgroundColor"] == "#1d2125"
+    assert theme["textColor"] == "#eef0f2"
+    assert theme["borderColor"] == "#2a2f34"
     assert theme["baseRadius"] == "2px"
     assert theme["buttonRadius"] == "2px"
-    assert theme["dataframeHeaderBackgroundColor"] == "#17231c"
-    assert theme["dataframeBorderColor"] == "#213028"
-    assert theme["sidebar"]["backgroundColor"] == "#111a15"
+    assert theme["dataframeHeaderBackgroundColor"] == "#1d2125"
+    assert theme["dataframeBorderColor"] == "#2a2f34"
+    assert theme["sidebar"]["backgroundColor"] == "#16191c"
 
 
 def test_theme_fonts_are_inter_and_barlow_condensed():

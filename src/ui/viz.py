@@ -1,4 +1,4 @@
-"""Plotly figures in the Floodlight style.
+"""Plotly figures in the charcoal style.
 
 Ported from the basketball dashboard (lib/viz.py: _layout, PLOTLY_CONFIG,
 percentile_bars, compare_dumbbell, _empty). Chart rules: transparent
@@ -19,7 +19,7 @@ from src.ui import theme as T
 PLOTLY_CONFIG = {"displayModeBar": False}
 ROW_PX = 38            # percentile bar row height
 DUMBBELL_ROW_PX = 34
-LINK = "rgba(236,242,237,0.22)"  # dumbbell connector
+LINK = "rgba(238,240,242,0.22)"  # dumbbell connector
 LABEL_SHIFT = 14       # px above/below a dot for its direct label
 LABEL_X_MIN, LABEL_X_MAX = 10, 90  # keep centred labels inside the plot
 

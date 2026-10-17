@@ -1,10 +1,11 @@
-"""Floodlight design tokens, global CSS and small HTML helpers.
+"""Charcoal design tokens, global CSS and small HTML helpers.
 
 Ported from the Basketball Intelligence Platform (dashboard/lib/theme.py:
 kpi(), card(), chip(), tip(); lib/media.py: avatar initials) and restyled
-as a night match: deep pitch greens, chalk-white type, floodlight-lime
-accent. .streamlit/config.toml mirrors the tokens for native widgets
-(tests/test_theme.py keeps the two in sync).
+as a neutral charcoal page with chalk-grey structure and ONE interface
+accent, lime: selected states (Streamlit's primaryColor), the title word
+and the Elite percentile band. .streamlit/config.toml mirrors the tokens
+for native widgets (tests/test_theme.py keeps the two in sync).
 
 Every helper returns ONE line of HTML: st.markdown treats a blank or
 indented line inside raw HTML as Markdown and breaks the block. No CSS
@@ -20,18 +21,27 @@ from typing import Iterable, Sequence
 
 from src.ui import stats
 
-PAGE = "#0a110d"        # app background
-SURFACE = "#111a15"     # cards, chart surface, sidebar
-SURFACE_2 = "#17231c"   # hover, table header, inputs
-BORDER = "#213028"      # card and table borders
-INK = "#ecf2ed"         # primary text
-INK_2 = "#b3c1b8"       # secondary text
-MUTED = "#7f8f86"       # labels, captions
-GRID = "rgba(236,242,237,0.07)"  # chart gridlines
-ACCENT = "#b8f05a"      # brand accent: primaryColor, title bars, active states, hero highlight
-PLAYER = "#5aa82c"      # selected player series in charts
-COMPARE = "#7c7cf2"     # comparison player series in charts
-PCT_RAMP = ("#3d5a26", "#5c8a2e", "#84c234", "#b8f05a")  # bands <25, 25-49, 50-74, 75+
+PAGE = "#0e1012"        # app background, neutral charcoal
+SURFACE = "#16191c"     # cards, chart surface, sidebar
+SURFACE_2 = "#1d2125"   # hover, table header, inputs, chip fill
+BORDER = "#2a2f34"      # card and table borders
+INK = "#eef0f2"         # primary text
+INK_2 = "#b6bcc2"       # secondary text
+MUTED = "#858c93"       # labels, captions
+GRID = "rgba(238,240,242,0.07)"  # chart gridlines
+# The ONE interface accent. Allowed only on: primaryColor (selected pills,
+# tabs, slider, focus), the hero/brand highlight word, the Elite band. Never
+# on structural chrome - that is RULE (tests/test_theme.py enforces it).
+ACCENT = "#b8f05a"
+RULE = "#c9cfd4"        # chalk structural accent: tile borders, section bars, hero rule, avatar ring, position chip
+PLAYER = "#5aa82c"      # selected player series in charts (dumbbell A; passes the validator on SURFACE)
+COMPARE = "#7c7cf2"     # comparison player series in charts (dumbbell B)
+# Percentile bands <25 Poor, 25-49 Below avg, 50-74 Above avg, 75+ Elite.
+# "Neutral until good": grey, grey, sage, lime. The dataviz validator
+# (--ordinal, on SURFACE) passes lightness monotone, adjacent delta-L and
+# light-end contrast (2.13:1) but FAILS "single hue" (spread 121 degrees).
+# That failure is by design - this is not a one-hue sequential ramp.
+PCT_RAMP = ("#4a4f54", "#767c82", "#7fa36a", "#b8f05a")
 RADIUS = "2px"
 
 FONT_BODY = '"Inter", system-ui, -apple-system, "Segoe UI", sans-serif'
@@ -43,20 +53,14 @@ CSS = f"""
 <style>
 @import url('{FONTS_URL}');
 
-/* ---- page: night pitch with very faint mowed stripes ---- */
-.stApp {{
-  background:
-    repeating-linear-gradient(90deg, rgba(236,242,237,0.012) 0px, rgba(236,242,237,0.012) 96px,
-                              transparent 96px, transparent 192px),
-    radial-gradient(1200px 520px at 50% -18%, rgba(184,240,90,0.06), transparent 62%),
-    {PAGE};
-}}
+/* ---- page: plain neutral charcoal ---- */
+.stApp {{ background: {PAGE}; }}
 
 /* ---- hero ---- */
 .fl-hero {{
   position: relative; overflow: hidden;
-  background: linear-gradient(120deg, rgba(184,240,90,0.10) 0%, rgba(17,26,21,0) 55%), {SURFACE};
-  border: 1px solid {BORDER}; border-left: 3px solid {ACCENT}; border-radius: {RADIUS};
+  background: linear-gradient(120deg, rgba(238,240,242,0.05) 0%, rgba(22,25,28,0) 55%), {SURFACE};
+  border: 1px solid {BORDER}; border-left: 3px solid {RULE}; border-radius: {RADIUS};
   padding: 1.3rem 1.6rem; margin-bottom: 1rem;
 }}
 .fl-hero-title {{ font-family: {FONT_DISPLAY}; font-weight: 800; font-size: 2.6rem; line-height: 1;
@@ -72,13 +76,13 @@ CSS = f"""
 .fl-card-title {{ display: flex; align-items: center; margin: 0 0 .6rem 0; font-size: .74rem;
                   font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: {MUTED}; }}
 .fl-card-title::before {{ content: ""; display: inline-block; width: 3px; height: .95em;
-                          background: {ACCENT}; border-radius: {RADIUS}; margin-right: .55rem; }}
+                          background: {RULE}; border-radius: {RADIUS}; margin-right: .55rem; }}
 .stApp [class*="st-key-card"] {{ background: {SURFACE}; border-color: {BORDER}; border-radius: {RADIUS}; }}
 
 /* ---- identity card + KPI tiles ---- */
 .fl-identity {{ display: flex; align-items: center; gap: 1rem; }}
 .fl-avatar {{ display: inline-flex; align-items: center; justify-content: center; flex: none;
-              border-radius: 50%; border: 2px solid {ACCENT}; background: rgba(184,240,90,0.10);
+              border-radius: 50%; border: 2px solid {RULE}; background: rgba(201,207,212,0.10);
               color: {INK}; font-family: {FONT_DISPLAY}; font-weight: 700; }}
 .fl-name {{ font-family: {FONT_DISPLAY}; font-weight: 700; font-size: 2.1rem; line-height: 1.05;
             letter-spacing: .01em; color: {INK}; }}
@@ -86,10 +90,11 @@ CSS = f"""
 .fl-chip {{ display: inline-block; padding: 2px 10px; border-radius: {RADIUS}; background: {SURFACE_2};
             border: 1px solid {BORDER}; color: {INK_2}; font-size: .75rem; font-weight: 600;
             letter-spacing: .02em; }}
-.fl-chip-accent {{ color: {ACCENT}; border-color: rgba(184,240,90,0.35); background: rgba(184,240,90,0.08); }}
+/* the position chip (chip(..., accent=True)): chalk, not lime */
+.fl-chip-accent {{ color: {RULE}; border-color: {RULE}; background: rgba(201,207,212,0.08); }}
 .fl-kpi-row {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: .6rem;
                margin-bottom: 1rem; }}
-.fl-kpi {{ background: {SURFACE}; border: 1px solid {BORDER}; border-left: 3px solid {ACCENT};
+.fl-kpi {{ background: {SURFACE}; border: 1px solid {BORDER}; border-left: 3px solid {RULE};
            border-radius: {RADIUS}; padding: .65rem .6rem; }}
 .fl-kpi-label {{ display: flex; align-items: center; font-size: .7rem; text-transform: uppercase;
                  letter-spacing: .09em; color: {MUTED}; font-weight: 600; }}
@@ -116,7 +121,7 @@ CSS = f"""
 .fl-steps {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .75rem;
              margin: .5rem 0 1rem; }}
 .fl-steps .fl-card {{ margin-bottom: 0; }}
-.fl-step-num {{ font-family: {FONT_DISPLAY}; font-weight: 800; font-size: 2rem; line-height: 1; color: {ACCENT}; }}
+.fl-step-num {{ font-family: {FONT_DISPLAY}; font-weight: 800; font-size: 2rem; line-height: 1; color: {RULE}; }}
 .fl-step-title {{ font-weight: 700; color: {INK}; margin: .35rem 0 .2rem; }}
 .fl-step-body {{ font-size: .85rem; color: {INK_2}; }}
 .fl-empty {{ background: {SURFACE}; border: 1px dashed {BORDER}; border-radius: {RADIUS};

@@ -20,7 +20,7 @@ COLUMN_CONFIG = {
     "Position": st.column_config.TextColumn("Position"),
     "Minutes": st.column_config.NumberColumn("Minutes", format="localized"),
     "Similarity": st.column_config.ProgressColumn(
-        "Similarity", min_value=0.0, max_value=1.0, format="%.2f", color=theme.ACCENT, width=120,
+        "Similarity", min_value=0.0, max_value=1.0, format="%.2f", color=theme.RULE, width=120,
         help="1.00 = an identical statistical profile"),
 }
 # Position is the same for every row (the pool is one position), so leave it

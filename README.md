@@ -170,7 +170,7 @@ scouting-report/
 ├── schema.sql               # Full BigQuery DDL (raw tables + feature tables + percentile views)
 ├── requirements.txt
 ├── requirements-dev.txt     # + pytest
-├── .streamlit/config.toml   # Floodlight theme for native widgets
+├── .streamlit/config.toml   # Charcoal theme (lime accent) for native widgets
 ├── src/
 │   ├── fbref_utils.py       # All cleaning, normalisation, and aggregation logic
 │   ├── similarity.py        # Similarity model and BigQuery query functions

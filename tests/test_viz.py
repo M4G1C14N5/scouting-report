@@ -146,3 +146,10 @@ def test_dumbbell_tied_percentiles_stay_both_visible():
     assert b.marker.color == theme.COMPARE and a.marker.line.color == theme.SURFACE
     assert (a.legendrank, b.legendrank) == (1, 2)
     assert fig.layout.hovermode == "y unified"
+
+
+def test_percentile_bands_are_grey_sage_then_lime():
+    # option A: neutral until good; lime is reserved for the Elite band
+    assert theme.PCT_RAMP[3] == theme.ACCENT
+    assert theme.ACCENT not in theme.PCT_RAMP[:3]
+    assert viz.LINK == "rgba(238,240,242,0.22)"

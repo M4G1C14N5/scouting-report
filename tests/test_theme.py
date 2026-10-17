@@ -9,19 +9,50 @@ from src.ui import theme
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_tokens_are_floodlight_verbatim():
-    assert (theme.PAGE, theme.SURFACE, theme.SURFACE_2, theme.BORDER) == \
-        ("#0a110d", "#111a15", "#17231c", "#213028")
-    assert (theme.INK, theme.INK_2, theme.MUTED) == ("#ecf2ed", "#b3c1b8", "#7f8f86")
-    assert theme.GRID == "rgba(236,242,237,0.07)"
-    assert (theme.ACCENT, theme.PLAYER, theme.COMPARE) == ("#b8f05a", "#5aa82c", "#7c7cf2")
-    assert theme.PCT_RAMP == ("#3d5a26", "#5c8a2e", "#84c234", "#b8f05a")
+def test_tokens_are_charcoal_verbatim():
+    assert (theme.PAGE, theme.SURFACE, theme.SURFACE_2, theme.BORDER) ==         ("#0e1012", "#16191c", "#1d2125", "#2a2f34")
+    assert (theme.INK, theme.INK_2, theme.MUTED) == ("#eef0f2", "#b6bcc2", "#858c93")
+    assert theme.GRID == "rgba(238,240,242,0.07)"
+    assert (theme.ACCENT, theme.RULE, theme.PLAYER, theme.COMPARE) ==         ("#b8f05a", "#c9cfd4", "#5aa82c", "#7c7cf2")
+    assert theme.PCT_RAMP == ("#4a4f54", "#767c82", "#7fa36a", "#b8f05a")
     assert theme.RADIUS == "2px"
+
+
+def _rule(selector: str) -> str:
+    """The body of the first CSS rule that starts with `selector`."""
+    start = theme.CSS.index(selector + " {")
+    return theme.CSS[start:theme.CSS.index("}", start)]
+
+
+def test_accent_is_not_used_on_structural_chrome():
+    # chalk (RULE) carries the structure: tile borders, section bars, hero rule,
+    # avatar ring, position chip, step numbers
+    assert theme.RULE in _rule(".fl-kpi") and theme.ACCENT not in _rule(".fl-kpi")
+    assert theme.RULE in _rule(".fl-card-title::before") and theme.ACCENT not in _rule(".fl-card-title::before")
+    assert theme.RULE in _rule(".fl-hero") and theme.ACCENT not in _rule(".fl-hero")
+    assert theme.RULE in _rule(".fl-avatar") and theme.ACCENT not in _rule(".fl-avatar")
+    assert theme.RULE in _rule(".fl-chip-accent") and theme.ACCENT not in _rule(".fl-chip-accent")
+    assert theme.ACCENT not in _rule(".fl-step-num")
+
+
+def test_accent_appears_only_on_the_brand_words():
+    # lime in the injected CSS: the hero word and the sidebar brand word, nothing else
+    lines = [ln for ln in theme.CSS.splitlines() if theme.ACCENT in ln]
+    assert len(lines) == 2
+    assert any(ln.startswith(".fl-hero-title em") for ln in lines)
+    assert any(ln.startswith(".fl-brand em") for ln in lines)
+
+
+def test_no_green_tint_left_in_the_css():
+    assert "184,240,90" not in theme.CSS  # the old lime rgba tints
+    assert "236,242,237" not in theme.CSS and "17,26,21" not in theme.CSS
+    assert "repeating-linear-gradient" not in theme.CSS and "radial-gradient" not in theme.CSS
 
 
 def test_streamlit_config_mirrors_the_tokens():
     cfg = tomllib.loads((ROOT / ".streamlit" / "config.toml").read_text(encoding="utf-8"))["theme"]
     assert cfg["primaryColor"] == theme.ACCENT
+    assert cfg["linkColor"] == theme.RULE
     assert cfg["backgroundColor"] == theme.PAGE
     assert cfg["secondaryBackgroundColor"] == theme.SURFACE_2
     assert cfg["textColor"] == theme.INK
