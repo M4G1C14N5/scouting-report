@@ -384,17 +384,16 @@ def test_same_name_same_club_falls_back_to_birth_year_then_a_number():
 
 # --- display names -------------------------------------------------------------
 
-def test_display_names_from_understat_then_profile_initial():
+def test_display_names_profile_first_then_understat_only_for_abbreviated():
     common = dict(league_code="ENG1", season_label="2025-2026", position_group="ATT")
     rows = [
-        # (a) linked to Understat: its name wins (HTML entities decoded)
+        # (b) first: the profile first name expands the initial, keeping accents,
+        # even when Understat has a different spelling
         _row(source="apif", player_name="M. Salah", team="Liverpool", minutes=2500,
              understat_name="Mohamed Salah", profile_first_name="Mohamed", **common),
-        _row(source="apif", player_name="N. Kanté", team="Chelsea", minutes=2000,
-             understat_name="N&#039;Golo Kanté", profile_first_name="N'Golo", **common),
-        _row(source="apif", player_name="Vinícius Júnior", team="Real Madrid", minutes=2600,
-             understat_name="Vinicius Junior", profile_first_name="Vinícius José", **common),
-        # (b) initial matches the profile first name's first token
+        _row(source="apif", player_name="K. Mbappé", team="Real Madrid", minutes=2600,
+             league_code="ESP1", season_label="2025-2026", position_group="ATT",
+             understat_name="Kylian Mbappe-Lottin", profile_first_name="Kylian"),
         _row(source="apif", player_name="E. Haaland", team="Manchester City", minutes=2400,
              profile_first_name="Erling Braut", **common),
         _row(source="apif", player_name="E. Mendy", team="Al Ahli", minutes=1800,
@@ -402,11 +401,23 @@ def test_display_names_from_understat_then_profile_initial():
         _row(source="apif_matches", player_name="J. Doe", team="Walsall", minutes=900,
              profile_first_name="john", league_code="ENG4", season_label="2025-2026",
              position_group="DEF"),  # case-insensitive
-        # (c) kept: initial does not match, no initial, no profile
-        _row(source="apif", player_name="K. Mismatch", team="Burnley", minutes=1500,
-             profile_first_name="Jacky", **common),
+        # Understat only when (b) does not apply (HTML entities decoded)
+        _row(source="apif", player_name="H. Maguire", team="Manchester United", minutes=2000,
+             understat_name="Harry Maguire", **common),
+        _row(source="apif", player_name="N. Kanté", team="Chelsea", minutes=2000,
+             understat_name="N&#039;Golo Kanté", **common),
+        _row(source="apif", player_name="A. Masuaku", team="Lens", minutes=1700,
+             understat_name="Arthur Masuaku", profile_first_name="Kiki", **common),
+        # never changed: already-full names, even when linked to Understat
+        _row(source="apif", player_name="Dani Raba", team="Leganés", minutes=1900,
+             understat_name="Raba", profile_first_name="Daniel", **common),
+        _row(source="apif", player_name="Vinícius Júnior", team="Real Madrid", minutes=2700,
+             understat_name="Vinicius Junior", profile_first_name="Vinícius José", **common),
         _row(source="apif", player_name="Bruno Fernandes", team="Manchester United",
              minutes=2700, profile_first_name="Bruno Miguel", **common),
+        # kept: abbreviated with no usable first name and no Understat link
+        _row(source="apif", player_name="K. Mismatch", team="Burnley", minutes=1500,
+             profile_first_name="Jacky", **common),
         _row(source="apif", player_name="P. Noprofile", team="Fulham", minutes=1200, **common),
         # ASA names never change
         _row(source="asa", league_code="MLS", season_label="2025", player_name="A. Asa",
@@ -416,12 +427,13 @@ def test_display_names_from_understat_then_profile_initial():
     report: dict = {}
     outfield, _ = loader.build_frames(players(rows), report=report)
     names = set(outfield["Player"])
-    assert {"Mohamed Salah", "N'Golo Kanté", "Vinicius Junior", "Erling Haaland",
-            "Édouard Mendy", "john Doe", "K. Mismatch", "Bruno Fernandes", "P. Noprofile",
+    assert {"Mohamed Salah", "Kylian Mbappé", "Erling Haaland", "Édouard Mendy", "john Doe",
+            "Harry Maguire", "N'Golo Kanté", "Arthur Masuaku", "Dani Raba",
+            "Vinícius Júnior", "Bruno Fernandes", "K. Mismatch", "P. Noprofile",
             "A. Asa"} == names
+    assert report["names_initial"] == 5
     assert report["names_understat"] == 3
-    assert report["names_initial"] == 3
-    assert len(report["name_examples"]) == 6
+    assert len(report["name_examples"]) == 8
     assert "M. Salah -> Mohamed Salah" in report["name_examples"][0]
 
 

@@ -304,20 +304,23 @@ def _clean(value) -> str | None:
 
 
 def _display_name(source: str, name: str, understat, first_name) -> tuple[str, str | None]:
-    """(name, rule) for one row. API-Football rows: (a) the Understat name when
-    linked, (b) "M. Salah" -> "Mohamed Salah" when the profile's first name starts
-    with the initial, (c) unchanged. ASA names never change."""
+    """(name, rule) for one row. Only abbreviated API-Football names ("M. Salah")
+    change: first the profile's first name when it starts with the initial
+    ("Mohamed Salah", accents kept), else the Understat name when linked, else
+    unchanged. Full names and ASA names never change."""
     if source not in ("apif", "apif_matches"):
         return name, None
-    understat = _clean(understat)
-    if understat:
-        return understat, "understat"
-    first = _clean(first_name)
     match = _INITIAL_NAME.match(name or "")
-    if first and match:
+    if not match:
+        return name, None
+    first = _clean(first_name)
+    if first:
         token = first.split()[0]
         if _fold(token).startswith(_fold(match.group(1))):
             return f"{token} {match.group(2)}", "initial"
+    understat = _clean(understat)
+    if understat:
+        return understat, "understat"
     return name, None
 
 
