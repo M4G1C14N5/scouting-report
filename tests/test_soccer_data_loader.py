@@ -85,8 +85,12 @@ ROWS = [
 ]
 
 
-def players() -> pd.DataFrame:
-    return pd.DataFrame(ROWS, columns=MART_COLUMNS)
+# read_players adds these from the Understat link and the API-Football profiles
+LINK_COLUMNS = ["understat_name", "profile_first_name"]
+
+
+def players(rows: list[dict] | None = None) -> pd.DataFrame:
+    return pd.DataFrame(ROWS if rows is None else rows, columns=MART_COLUMNS + LINK_COLUMNS)
 
 
 @pytest.fixture(scope="module")
@@ -149,17 +153,48 @@ def test_read_players_filters_league_season_and_minutes(tmp_path):
         _row(source="apif", league_code="ENG1", season_label="2025-2026",
              player_name="Just Enough", position_group="MID", minutes=90),
     ]
-    frame = pd.DataFrame(ROWS + extra, columns=MART_COLUMNS)
+    linked = [
+        _row(source="apif", source_player_id="306", league_id=39, season=2025,
+             league_code="ENG1", season_label="2025-2026", player_name="M. Salah",
+             team="Liverpool", position_group="ATT", minutes=2500),
+        _row(source="apif", source_player_id="1100", league_id=39, season=2025,
+             league_code="ENG1", season_label="2025-2026", player_name="E. Haaland",
+             team="Manchester City", position_group="ATT", minutes=2400),
+    ]
+    frame = pd.DataFrame(ROWS + extra + linked, columns=MART_COLUMNS)
     con = duckdb.connect(str(path))
     con.register("src_frame", frame)
     con.execute("CREATE TABLE player_season_stats AS SELECT * FROM src_frame")
+    con.execute("CREATE TABLE league_info (apif_league_id INTEGER, league_code VARCHAR, "
+                "understat_league VARCHAR)")
+    con.execute("INSERT INTO league_info VALUES (39, 'ENG1', 'EPL'), (140, 'ESP1', 'La_liga')")
+    con.execute("CREATE TABLE int_understat__apif_match (understat_player_id BIGINT, "
+                "apif_player_id BIGINT, league_id INTEGER, season BIGINT)")
+    con.execute("INSERT INTO int_understat__apif_match VALUES (1250, 306, 39, 2025), "
+                "(1250, 306, 39, 2024)")
+    con.execute("CREATE TABLE stg_understat__player_seasons (understat_player_id BIGINT, "
+                "player_name VARCHAR, league VARCHAR, season BIGINT)")
+    con.execute("INSERT INTO stg_understat__player_seasons VALUES "
+                "(1250, 'Mohamed Salah', 'EPL', 2025), (1250, 'Mo Salah', 'EPL', 2024), "
+                "(1250, 'Wrong League', 'La_liga', 2025)")
+    con.execute("CREATE TABLE stg_apif__players (player_id BIGINT, player_name VARCHAR, "
+                "first_name VARCHAR, last_name VARCHAR)")
+    con.execute("INSERT INTO stg_apif__players VALUES (306, 'M. Salah', 'Mohamed', 'Salah'), "
+                "(1100, 'E. Haaland', 'Erling Braut', 'Haaland')")
     con.close()
 
     got = loader.read_players(path)
     names = set(got["player_name"])
     assert "Just Enough" in names
     assert not names & {"Other League", "Old Season", "Few Minutes"}
-    assert len(got) == len(ROWS) + 1
+    assert len(got) == len(ROWS) + 1 + len(linked)
+    salah = got[got["player_name"] == "M. Salah"].iloc[0]
+    assert salah["understat_name"] == "Mohamed Salah"
+    assert salah["profile_first_name"] == "Mohamed"
+    haaland = got[got["player_name"] == "E. Haaland"].iloc[0]
+    assert pd.isna(haaland["understat_name"])
+    assert haaland["profile_first_name"] == "Erling Braut"
+    assert got.loc[got["source"] == "asa", "profile_first_name"].isna().all()
 
 
 # --- build_frames ------------------------------------------------------------
@@ -345,6 +380,105 @@ def test_same_name_same_club_falls_back_to_birth_year_then_a_number():
     assert by_minutes[3240] == "Z. None (Reims, Ligue 1, #1)"
     assert by_minutes[360] == "Z. None (Reims, Ligue 1, #2)"
     assert report["renamed"] == 6
+
+
+# --- display names -------------------------------------------------------------
+
+def test_display_names_from_understat_then_profile_initial():
+    common = dict(league_code="ENG1", season_label="2025-2026", position_group="ATT")
+    rows = [
+        # (a) linked to Understat: its name wins (HTML entities decoded)
+        _row(source="apif", player_name="M. Salah", team="Liverpool", minutes=2500,
+             understat_name="Mohamed Salah", profile_first_name="Mohamed", **common),
+        _row(source="apif", player_name="N. Kanté", team="Chelsea", minutes=2000,
+             understat_name="N&#039;Golo Kanté", profile_first_name="N'Golo", **common),
+        _row(source="apif", player_name="Vinícius Júnior", team="Real Madrid", minutes=2600,
+             understat_name="Vinicius Junior", profile_first_name="Vinícius José", **common),
+        # (b) initial matches the profile first name's first token
+        _row(source="apif", player_name="E. Haaland", team="Manchester City", minutes=2400,
+             profile_first_name="Erling Braut", **common),
+        _row(source="apif", player_name="E. Mendy", team="Al Ahli", minutes=1800,
+             profile_first_name="Édouard Osoque", **common),  # accent-insensitive
+        _row(source="apif_matches", player_name="J. Doe", team="Walsall", minutes=900,
+             profile_first_name="john", league_code="ENG4", season_label="2025-2026",
+             position_group="DEF"),  # case-insensitive
+        # (c) kept: initial does not match, no initial, no profile
+        _row(source="apif", player_name="K. Mismatch", team="Burnley", minutes=1500,
+             profile_first_name="Jacky", **common),
+        _row(source="apif", player_name="Bruno Fernandes", team="Manchester United",
+             minutes=2700, profile_first_name="Bruno Miguel", **common),
+        _row(source="apif", player_name="P. Noprofile", team="Fulham", minutes=1200, **common),
+        # ASA names never change
+        _row(source="asa", league_code="MLS", season_label="2025", player_name="A. Asa",
+             team="Austin FC", position_group="MID", minutes=1500,
+             understat_name="Should Not", profile_first_name="Alan"),
+    ]
+    report: dict = {}
+    outfield, _ = loader.build_frames(players(rows), report=report)
+    names = set(outfield["Player"])
+    assert {"Mohamed Salah", "N'Golo Kanté", "Vinicius Junior", "Erling Haaland",
+            "Édouard Mendy", "john Doe", "K. Mismatch", "Bruno Fernandes", "P. Noprofile",
+            "A. Asa"} == names
+    assert report["names_understat"] == 3
+    assert report["names_initial"] == 3
+    assert len(report["name_examples"]) == 6
+    assert "M. Salah -> Mohamed Salah" in report["name_examples"][0]
+
+
+def test_names_are_fixed_before_collision_renaming():
+    common = dict(source="apif", league_code="ENG1", season_label="2025-2026",
+                  position_group="MID")
+    rows = [
+        _row(player_name="J. Smith", team="Chelsea", minutes=1000, profile_first_name="James",
+             **common),
+        _row(player_name="J. Smith", team="Everton", minutes=1100, profile_first_name="John",
+             **common),
+    ]
+    report: dict = {}
+    outfield, _ = loader.build_frames(players(rows), report=report)
+    assert set(outfield["Player"]) == {"James Smith", "John Smith"}
+    assert report["renamed"] == 0
+
+
+# --- plausibility --------------------------------------------------------------
+
+def test_implausible_per_90_rows_are_dropped():
+    europe = dict(source="apif", league_code="ESP1", season_label="2024-2025")
+    rows = [
+        # Mamardashvili: 180 minutes with full-season keeper totals
+        _row(player_name="G. Full", team="Valencia", position_group="GK", minutes=180,
+             goals_conceded=48, saves=93, **europe),
+        _row(player_name="S. Saves", team="Getafe", position_group="GK", minutes=180,
+             goals_conceded=2, saves=19, **europe),          # 9.5 saves per 90
+        _row(player_name="K. Fine", team="Girona", position_group="GK", minutes=180,
+             goals_conceded=8, saves=18, **europe),          # 4 GA and 9 saves per 90: kept
+        _row(player_name="S. Shots", team="Betis", position_group="ATT", minutes=180,
+             shots=21, goals=1, key_passes=1, **europe),     # 10.5 shots per 90
+        _row(player_name="G. Goals", team="Betis", position_group="ATT", minutes=90,
+             shots=5, goals=4, **europe),                    # 4 goals per 90
+        _row(player_name="K. Passes", team="Sevilla", position_group="MID", minutes=90,
+             key_passes=9, **europe),                        # 9 key passes per 90
+        _row(player_name="O. Edge", team="Sevilla", position_group="MID", minutes=90,
+             shots=10, goals=3, key_passes=8, **europe),     # exactly on every limit: kept
+        _row(source="asa", league_code="MLS", season_label="2025", player_name="A. Nulls",
+             team="Austin FC", position_group="DEF", minutes=900, goals=0, shots=2),
+    ]
+    report: dict = {}
+    outfield, goalkeeper = loader.build_frames(players(rows), report=report)
+    assert set(goalkeeper["Player"]) == {"K. Fine"}
+    assert set(outfield["Player"]) == {"O. Edge", "A. Nulls"}
+    assert report["dropped_implausible"] == 5
+    assert report["implausible_by_league_season"] == {("La Liga", "2024-2025"): 5}
+    assert len(report["implausible_examples"]) == 5
+    assert any("G. Full" in e for e in report["implausible_examples"])
+
+
+def test_plausibility_thresholds_are_constants():
+    assert loader.MAX_GK_GOALS_AGAINST_PER_90 == 4
+    assert loader.MAX_GK_SAVES_PER_90 == 9
+    assert loader.MAX_SHOTS_PER_90 == 10
+    assert loader.MAX_GOALS_PER_90 == 3
+    assert loader.MAX_KEY_PASSES_PER_90 == 8
 
 
 # --- view SQL ----------------------------------------------------------------

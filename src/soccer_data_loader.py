@@ -15,8 +15,10 @@ CLI: scripts/load_soccer_data.py [--dry-run]
 from __future__ import annotations
 
 import argparse
+import html
 import os
 import re
+import unicodedata
 from pathlib import Path
 
 import numpy as np
@@ -55,6 +57,16 @@ LEAGUES: dict[str, str] = {
 SEASONS = {"2024-2025", "2025-2026", "2024", "2025", "2026"}
 
 MIN_MINUTES = 90
+
+# Plausibility limits per 90 minutes. soccer-data's API-Football catalog has rows
+# whose counting stats are full-season but whose minutes are partial (G.
+# Mamardashvili, Valencia 2024-25: 180 minutes, 48 goals against, 93 saves).
+# A row above any limit for its position is dropped.
+MAX_GK_GOALS_AGAINST_PER_90 = 4
+MAX_GK_SAVES_PER_90 = 9
+MAX_SHOTS_PER_90 = 10
+MAX_GOALS_PER_90 = 3
+MAX_KEY_PASSES_PER_90 = 8
 
 # FBref table -> the v2 table and the union view built from it. These are the
 # only BigQuery objects this module ever writes.
@@ -122,22 +134,46 @@ def warehouse_path() -> Path:
 
 
 def read_players(path: Path | str) -> pd.DataFrame:
-    """Rows of player_season_stats in LEAGUES and SEASONS with at least 90 minutes."""
+    """Rows of player_season_stats in LEAGUES and SEASONS with at least 90 minutes.
+
+    API-Football rows also get `understat_name` (the Understat player name when
+    soccer-data links the player for that league-season) and `profile_first_name`
+    (the API-Football profile's first name), used for display names."""
     import duckdb  # dev-only dependency: the app never imports this module
 
     leagues, seasons = sorted(LEAGUES), sorted(SEASONS)
+    where = (
+        f" WHERE p.league_code IN ({', '.join('?' * len(leagues))})"
+        f" AND p.season_label IN ({', '.join('?' * len(seasons))})"
+        " AND p.minutes >= ?"
+    )
+    params = [*leagues, *seasons, MIN_MINUTES]
+    apif = "p.source IN ('apif', 'apif_matches')"
     sql = (
-        "SELECT * FROM player_season_stats"
-        f" WHERE league_code IN ({', '.join('?' * len(leagues))})"
-        f" AND season_label IN ({', '.join('?' * len(seasons))})"
-        " AND minutes >= ?"
-        " ORDER BY league_code, season_label, player_name, team"
+        "SELECT p.*, us.player_name AS understat_name, pr.first_name AS profile_first_name"
+        " FROM player_season_stats p"
+        " LEFT JOIN league_info li ON li.apif_league_id = p.league_id"
+        f" LEFT JOIN int_understat__apif_match m ON {apif}"
+        "   AND m.apif_player_id = TRY_CAST(p.source_player_id AS BIGINT)"
+        "   AND m.league_id = p.league_id AND m.season = p.season"
+        " LEFT JOIN stg_understat__player_seasons us"
+        "   ON us.understat_player_id = m.understat_player_id"
+        "   AND us.season = m.season AND us.league = li.understat_league"
+        f" LEFT JOIN stg_apif__players pr ON {apif}"
+        "   AND pr.player_id = TRY_CAST(p.source_player_id AS BIGINT)"
+        + where +
+        " ORDER BY p.league_code, p.season_label, p.player_name, p.team"
     )
     con = duckdb.connect(str(path), read_only=True)
     try:
-        return con.execute(sql, [*leagues, *seasons, MIN_MINUTES]).df()
+        players = con.execute(sql, params).df()
+        expected = con.execute("SELECT count(*) FROM player_season_stats p" + where,
+                               params).fetchone()[0]
     finally:
         con.close()
+    if len(players) != expected:
+        raise ValueError(f"name lookups duplicated rows: {len(players)} != {expected}")
+    return players
 
 
 # --- mapping -------------------------------------------------------------------
@@ -251,6 +287,75 @@ def _goalkeeper(p: pd.DataFrame) -> pd.DataFrame:
     return _frame(v, GOALKEEPER_COLUMNS, p.index, _source_label(p["source"], p["xg"]))
 
 
+_INITIAL_NAME = re.compile(r"^([^\W\d_])\.\s+(\S.*)$")
+
+
+def _fold(text: str) -> str:
+    """Accent- and case-insensitive form."""
+    decomposed = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).casefold()
+
+
+def _clean(value) -> str | None:
+    if value is None or (isinstance(value, float) and np.isnan(value)) or pd.isna(value):
+        return None
+    text = html.unescape(str(value)).strip()
+    return text or None
+
+
+def _display_name(source: str, name: str, understat, first_name) -> tuple[str, str | None]:
+    """(name, rule) for one row. API-Football rows: (a) the Understat name when
+    linked, (b) "M. Salah" -> "Mohamed Salah" when the profile's first name starts
+    with the initial, (c) unchanged. ASA names never change."""
+    if source not in ("apif", "apif_matches"):
+        return name, None
+    understat = _clean(understat)
+    if understat:
+        return understat, "understat"
+    first = _clean(first_name)
+    match = _INITIAL_NAME.match(name or "")
+    if first and match:
+        token = first.split()[0]
+        if _fold(token).startswith(_fold(match.group(1))):
+            return f"{token} {match.group(2)}", "initial"
+    return name, None
+
+
+def _apply_display_names(p: pd.DataFrame, report: dict) -> None:
+    understat = p["understat_name"] if "understat_name" in p else pd.Series(None, index=p.index)
+    first = (p["profile_first_name"] if "profile_first_name" in p
+             else pd.Series(None, index=p.index))
+    results = [_display_name(s, n, u, f) for s, n, u, f
+               in zip(p["source"], p["player_name"], understat, first)]
+    new = pd.Series([r[0] for r in results], index=p.index, dtype=object)
+    rule = pd.Series([r[1] for r in results], index=p.index, dtype=object)
+    changed = new != p["player_name"]
+    report["names_understat"] = int((changed & (rule == "understat")).sum())
+    report["names_initial"] = int((changed & (rule == "initial")).sum())
+    report["name_examples"] = [
+        f"{old} -> {name} ({how}, {league} {season})"
+        for old, name, how, league, season in zip(
+            p.loc[changed, "player_name"], new[changed], rule[changed],
+            p.loc[changed, "league_code"], p.loc[changed, "season_label"])
+    ]
+    p["player_name"] = new
+
+
+def _implausible(p: pd.DataFrame) -> pd.Series:
+    """Rows whose per-90 rates are impossible for their position (null never fails)."""
+    nineties = p["minutes"] / 90
+
+    def over(col: str, limit: float) -> pd.Series:
+        return (_div(p[col], nineties) > limit).fillna(False)
+
+    keeper = p["position_group"] == "GK"
+    keeper_bad = over("goals_conceded", MAX_GK_GOALS_AGAINST_PER_90) | over(
+        "saves", MAX_GK_SAVES_PER_90)
+    outfield_bad = (over("shots", MAX_SHOTS_PER_90) | over("goals", MAX_GOALS_PER_90)
+                    | over("key_passes", MAX_KEY_PASSES_PER_90))
+    return (keeper & keeper_bad) | (~keeper & outfield_bad)
+
+
 def _make_unique(outfield: pd.DataFrame, goalkeeper: pd.DataFrame, report: dict) -> None:
     """Rename (Player, Season) repeats across both frames, in place, one level at a
     time until unique: "Name (Squad)", "Name (Squad, League)", then (different
@@ -315,8 +420,26 @@ def build_frames(players: pd.DataFrame,
     report["dropped_null_position"] = int(null_position.sum())
     report["dropped_asa_keepers"] = int((is_gk & ~keeper_ok).sum())
 
-    outfield = _outfield(p[~null_position & ~is_gk])
-    goalkeeper = _goalkeeper(p[is_gk & keeper_ok])
+    kept = ~null_position & ~(is_gk & ~keeper_ok)
+    bad = kept & _implausible(p)
+    dropped = p[bad]
+    report["dropped_implausible"] = int(bad.sum())
+    report["implausible_by_league_season"] = {
+        (LEAGUES.get(league, league), season): int(n)
+        for (league, season), n in dropped.groupby(["league_code", "season_label"]).size().items()
+    }
+    report["implausible_examples"] = [
+        f"{r.player_name} ({r.team}, {LEAGUES.get(r.league_code, r.league_code)} "
+        f"{r.season_label}): {r.minutes:.0f} min, {r.goals_conceded:.0f} GA, {r.saves:.0f} saves, "
+        f"{r.shots:.0f} shots, {r.goals:.0f} goals, {r.key_passes:.0f} key passes"
+        for r in dropped.sort_values("minutes").head(5).itertuples()
+    ]
+
+    p = p[kept & ~bad].copy()
+    _apply_display_names(p, report)
+    is_gk = p["position_group"] == "GK"
+    outfield = _outfield(p[~is_gk])
+    goalkeeper = _goalkeeper(p[is_gk])
     _make_unique(outfield, goalkeeper, report)
     return outfield, goalkeeper
 
@@ -427,7 +550,16 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"\nRead {len(players)} rows (>= {MIN_MINUTES} minutes).")
     print(f"Dropped: {report['dropped_null_position']} with no position, "
-          f"{report['dropped_asa_keepers']} ASA goalkeepers.")
+          f"{report['dropped_asa_keepers']} ASA goalkeepers, "
+          f"{report['dropped_implausible']} with implausible per-90 rates.")
+    for (league, season), n in sorted(report["implausible_by_league_season"].items()):
+        print(f"  implausible: {league} {season}: {n}")
+    for example in report["implausible_examples"]:
+        print(f"  {example}")
+    print(f"Display names: {report['names_understat']} from Understat, "
+          f"{report['names_initial']} from the profile first name.")
+    for example in report["name_examples"][:10]:
+        print(f"  {example}")
     print(f"Renamed {report['renamed']} colliding rows "
           f"({report['renamed_to_league']} needed the league, "
           f"{report['renamed_to_birth_year']} the birth year, "
