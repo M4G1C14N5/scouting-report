@@ -1,6 +1,6 @@
 # Scouting Hub
 
-An end-to-end football analytics platform built on a professional GCP data stack. Covers 7 seasons (2017–2024) of player statistics across Europe's Big 5 leagues, with a player similarity model and an interactive Streamlit scouting app backed by BigQuery.
+An end-to-end football analytics platform built on a professional GCP data stack. Covers player statistics across 19 leagues: Europe's Big 5 from 2017-18 (FBref), 15 European leagues for 2024-25 and 2025-26, and four US leagues for 2024 to 2026. It has a player similarity model and an interactive Streamlit scouting app backed by BigQuery.
 
 ---
 
@@ -44,12 +44,24 @@ gcp_loader.py
 
 ## Data
 
-| Source | FBref.com |
-|--------|-----------|
-| Seasons | 2017-18 through 2023-24 |
-| Leagues | Premier League, La Liga, Serie A, Bundesliga, Ligue 1 |
-| Tables | Standard, Shooting, Passing, Defending, Goalkeeping |
-| Records | 16,532 player-seasons with 90+ minutes in BigQuery (15,184 outfield + 1,348 goalkeeper); 13,773 with 450+ minutes, the cut-off used for percentiles and similarity |
+The app reads two BigQuery views, `outfield_all` and `goalkeeper_all`. Each one unions the original FBref feature table with a newer table loaded from the soccer-data warehouse (`outfield_features_v2`, `goalkeeper_features_v2`, written by `scripts/load_soccer_data.py`) and adds a `Source` column, shown as a chip on every player card. The FBref tables are never modified. New seasons never overlap FBref seasons, so a similarity or percentile pool never mixes the two.
+
+| Seasons | Leagues | Source |
+|---------|---------|--------|
+| 2017-18 to 2023-24 | Premier League, La Liga, Serie A, Bundesliga, Ligue 1 | FBref (frozen snapshot: standard, shooting, passing, defending, goalkeeping) |
+| 2024-25, 2025-26 | Big 5 | API-Football, with xG from Understat |
+| 2024-25, 2025-26 | Championship, League One, League Two, Primeira Liga, Eredivisie, Belgian Pro League, Austrian Bundesliga, Swiss Super League, Danish Superliga, Scottish Premiership | API-Football (season totals; for some leagues, totals built from match data) |
+| 2024, 2025, 2026 | MLS, USL Championship, USL League One, MLS NEXT Pro | American Soccer Analysis |
+
+European seasons are labelled `2025-2026` (shown as 2025-26) and US calendar seasons `2026`. The FBref part holds 16,532 player-seasons with 90+ minutes (15,184 outfield + 1,348 goalkeeper); 13,773 have 450+ minutes, the cut-off used for percentiles and similarity.
+
+**What the newer sources lack.** Stats a source doesn't have are left empty, never filled with zeros:
+
+- No progressive passing or carries after 2023-24, and none of FBref's other detailed passing, possession and defensive-action splits.
+- US leagues have no tackles or interceptions, and no goalkeeper stats (American Soccer Analysis keepers are not loaded).
+- League One and League Two have no xG before 2025-26.
+
+The similarity model works on the stats a player-season has (see below), and the Stats tab simply shows fewer rows.
 
 ---
 
@@ -77,6 +89,8 @@ Defined in `src/similarity.py`. Uses cosine similarity on z-scored stats.
 4. Cosine similarity is computed between the query player and every other player in the same pool
 5. Results are returned ranked by similarity score, filtered to players with ≥ 450 minutes
 
+Only template stats that the query player has and at least half of the pool has are used, so a US striker is compared on the stats US data carries. With fewer than 3 such stats the Similar tab says "Not enough comparable stats for this player in this season" instead of ranking. FBref rows, which have every template stat, rank exactly as before.
+
 **Known limitation:** With FBref data, goals and assists naturally carry high signal weight. More granular tracking data (pressing, spatial, ball retention) would improve result quality.
 
 ---
@@ -87,7 +101,7 @@ Defined in `src/similarity.py`. Uses cosine similarity on z-scored stats.
 
 - Sidebar filters: season (or all seasons), league and club
 - Search for one player. Players with several seasons in view get a season switcher.
-- Identity card with headline numbers: goals, assists, xG and xAG, or save %, goals against per 90 and clean-sheet % for keepers
+- Identity card with headline numbers: goals, assists, xG and xAG, or save %, goals against per 90 and clean-sheet % for keepers. A chip names the data source.
 - **Profile**: percentile bars against the same position and season (450+ minutes) on a curated metric list per position. Lower-is-better stats (errors, cards, goals against) are inverted. Counting stats are ranked per 90 minutes.
 - **Stats**: every stat by category, with the season total next to per 90
 - **Similar players**: the similarity model's top matches. Select one to compare percentiles side by side and jump to their profile.
@@ -125,6 +139,8 @@ Edit the two config lines at the top of `gcp_loader.py` and `src/similarity.py`:
 GCP_PROJECT = "your-project-id"
 GCS_BUCKET  = "your-bucket-name"
 ```
+
+The app reads `outfield_all` and `goalkeeper_all` by default. Set `BQ_OUTFIELD_TABLE` and `BQ_GOALKEEPER_TABLE` to point it at other tables, for example `outfield_features` and `goalkeeper_features` for the FBref data alone.
 
 **Run the cleaning pipeline**
 

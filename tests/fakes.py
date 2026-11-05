@@ -1,4 +1,5 @@
-"""Small fake BigQuery results for tests. Columns come from schema.sql."""
+"""Small fake BigQuery results for tests. Columns come from schema.sql, plus the
+Source column the outfield_all / goalkeeper_all views add."""
 
 from __future__ import annotations
 
@@ -9,7 +10,8 @@ from tests.schema_utils import IDENTITY_COLUMNS, feature_columns
 
 LATEST = "2023-2024"
 PREVIOUS = "2022-2023"
-INDEX_COLUMNS = ["Player", "Season", "Squad", "League", "Position", "position_group", "minutes"]
+INDEX_COLUMNS = ["Player", "Season", "Squad", "League", "Position", "position_group", "minutes", "Source"]
+SOURCE = "FBref"
 
 # Player, Season, Squad, League, Position, position_group, minutes, Nation, Age
 INDEX_ROWS = [
@@ -29,7 +31,7 @@ INDEX_ROWS = [
 
 
 def player_index() -> pd.DataFrame:
-    return pd.DataFrame([r[:7] for r in INDEX_ROWS], columns=INDEX_COLUMNS)
+    return pd.DataFrame([(*r[:7], SOURCE) for r in INDEX_ROWS], columns=INDEX_COLUMNS)
 
 
 def _feature_frame(table: str, rows: list[tuple]) -> pd.DataFrame:
@@ -40,9 +42,9 @@ def _feature_frame(table: str, rows: list[tuple]) -> pd.DataFrame:
         rec = {c: float(rng.uniform(0.05, 5.0)) for c in cols if c not in IDENTITY_COLUMNS}
         rec.update(Player=player, Nation=nation, Position=pos, Squad=squad, League=league,
                    Age=age, Born=2023 - age, Season=season, position_group=group,
-                   minutes=minutes, nineties_played=round(minutes / 90, 1))
+                   minutes=minutes, nineties_played=round(minutes / 90, 1), Source=SOURCE)
         records.append(rec)
-    return pd.DataFrame(records, columns=cols)
+    return pd.DataFrame(records, columns=[*cols, "Source"])
 
 
 def outfield_frame() -> pd.DataFrame:

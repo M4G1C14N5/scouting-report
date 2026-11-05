@@ -1,7 +1,9 @@
 """Cached BigQuery access for the UI.
 
-The SQL is the same text as the pre-redesign app.py (load_player_index and
-the Percentile tab's position-pool query). Every query is cached for an
+The SQL is the pre-redesign app.py's (load_player_index and the Percentile
+tab's position-pool query), now reading the tables named in
+src/similarity.py (OUTFIELD_TABLE, GOALKEEPER_TABLE: the outfield_all and
+goalkeeper_all views by default), with Source in the index. Every query is cached for an
 hour, which fixes the old app re-running 4-5 queries on every widget
 click. The BigQuery client is passed as `_bq`: the leading underscore
 tells st.cache_data not to hash it.
@@ -19,9 +21,12 @@ from google.cloud import bigquery
 from src.similarity import (
     BQ_DATASET,
     GCP_PROJECT,
+    GOALKEEPER_TABLE,
     MIN_MINUTES,
+    OUTFIELD_TABLE,
     find_similar_players,
     get_player_stats,
+    table_ref,
 )
 
 TTL = 3600
@@ -36,11 +41,11 @@ def get_bq_client() -> bigquery.Client:
 @st.cache_data(ttl=TTL, show_spinner="Loading players…")
 def load_player_index(_bq) -> pd.DataFrame:
     sql = f"""
-        SELECT Player, Season, Squad, League, Position, position_group, minutes
-        FROM `{GCP_PROJECT}.{BQ_DATASET}.outfield_features`
+        SELECT Player, Season, Squad, League, Position, position_group, minutes, Source
+        FROM {table_ref(OUTFIELD_TABLE)}
         UNION ALL
-        SELECT Player, Season, Squad, League, Position, position_group, minutes
-        FROM `{GCP_PROJECT}.{BQ_DATASET}.goalkeeper_features`
+        SELECT Player, Season, Squad, League, Position, position_group, minutes, Source
+        FROM {table_ref(GOALKEEPER_TABLE)}
         ORDER BY Player, Season
     """
     return _bq.query(sql).to_dataframe()
@@ -55,10 +60,7 @@ def player_stats(_bq, player: str, season: str) -> pd.Series:
 def position_pool(_bq, position_group: str, season: str) -> pd.DataFrame:
     """Everyone in the group and season with MIN_MINUTES+ minutes, fetched once and
     shared by the Profile and Similar tabs."""
-    if position_group == "GK":
-        table = f"`{GCP_PROJECT}.{BQ_DATASET}.goalkeeper_features`"
-    else:
-        table = f"`{GCP_PROJECT}.{BQ_DATASET}.outfield_features`"
+    table = table_ref(GOALKEEPER_TABLE if position_group == "GK" else OUTFIELD_TABLE)
 
     pool_sql = f"""
         SELECT *

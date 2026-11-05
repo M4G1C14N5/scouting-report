@@ -59,3 +59,33 @@ def test_pick_example_prefers_listed_names_then_most_minutes():
     assert filters.pick_example(INDEX, ("Kevin De Bruyne", "Alisson")) == "Alisson"
     assert filters.pick_example(INDEX, ("Kevin De Bruyne",)) == "Harry Kane"  # 3406 minutes
     assert filters.pick_example(INDEX.iloc[0:0], ("Alisson",)) is None
+
+
+# A player who moved from MLS to Europe. The two label kinds interleave by
+# leading year, the European season (which ends later) first on a tie:
+# 2026, 2025-2026, 2025, 2024-2025, 2024.
+MIXED = pd.DataFrame(
+    [
+        ("Mover", "2024", "Club A", "MLS", "FW", "ATT", 2500),
+        ("Mover", "2025", "Club A", "MLS", "FW", "ATT", 3000),
+        ("Mover", "2024-2025", "Club B", "Championship", "FW", "ATT", 300),
+        ("Mover", "2025-2026", "Club B", "Championship", "FW", "ATT", 2000),
+        ("Other", "2026", "Club C", "USL Championship", "MF", "MID", 900),
+        ("Other", "2023-2024", "Club D", "Ligue 1", "MF", "MID", 2900),
+    ],
+    columns=COLUMNS,
+)
+
+
+def test_seasons_desc_puts_the_newest_season_first_across_both_kinds():
+    assert filters.seasons_desc(MIXED) == ["2026", "2025-2026", "2025", "2024-2025", "2024", "2023-2024"]
+
+
+def test_player_seasons_ascending_across_both_kinds():
+    assert filters.player_seasons(MIXED, "Mover") == ["2024", "2024-2025", "2025", "2025-2026"]
+
+
+def test_search_options_pick_the_newest_season_across_both_kinds():
+    opts = filters.search_options(MIXED).set_index("Player")
+    assert opts.loc["Mover", "Season"] == "2025-2026"  # not "2025" (more minutes, older)
+    assert opts.loc["Other", "Season"] == "2026"

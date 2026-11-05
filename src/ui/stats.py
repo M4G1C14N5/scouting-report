@@ -18,6 +18,7 @@ BAND_LABELS = ("Poor", "Below avg", "Above avg", "Elite")
 BAND_EDGES = (25.0, 50.0, 75.0)  # <25, 25-49, 50-74, 75+
 MISSING = "—"
 _SEASON = re.compile(r"^(\d{4})-(\d{4})$")
+_LEADING_YEAR = re.compile(r"^(\d{4})")
 
 
 class Band(NamedTuple):
@@ -113,9 +114,21 @@ def per90(total: Any, nineties: Any) -> float | None:
 
 
 def short_season(season: str) -> str:
-    """"2022-2023" -> "2022-23"; anything else is returned unchanged."""
+    """"2022-2023" -> "2022-23"; anything else ("2026", a US calendar season)
+    is returned unchanged."""
     m = _SEASON.match(str(season))
     return f"{m.group(1)}-{m.group(2)[2:]}" if m else str(season)
+
+
+def season_sort_key(season: str) -> tuple[int, int]:
+    """Chronological sort key for European ("2025-2026") and US ("2026")
+    season labels: the leading year, then the label length, so on a shared
+    year the European season (it ends later) sorts after the US one:
+    2024 < 2024-2025 < 2025 < 2025-2026 < 2026. Labels without a leading
+    year sort below every season."""
+    text = str(season)
+    m = _LEADING_YEAR.match(text)
+    return (int(m.group(1)) if m else -1, len(text))
 
 
 def initials(name: str) -> str:

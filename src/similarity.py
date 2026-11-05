@@ -5,11 +5,15 @@ Player similarity model using cosine similarity on z-scored per-90 stats.
 
 How it works
 ------------
-1. Pull outfield_features or goalkeeper_features from BigQuery.
+1. Pull the outfield or goalkeeper rows from BigQuery (the outfield_all /
+   goalkeeper_all views by default: FBref plus the newer sources).
 2. Filter to players with >= 450 minutes (serious sample size).
 3. For the queried player's position group, select a position-specific
-   set of features (feature template).
-4. Z-score all feature columns so no single stat dominates by scale.
+   set of features (feature template). Keep only the features the queried
+   player has and at least half the pool has: newer sources leave some
+   stats empty (no progressive passing after 2023-24, no tackles in the US
+   leagues). Fewer than 3 left raises NotEnoughStatsError.
+4. Z-score the kept feature columns so no single stat dominates by scale.
 5. Compute cosine similarity between the queried player and every other
    player in the same position pool.
 6. Return the top N most similar players with their similarity score.
@@ -29,10 +33,26 @@ from google.cloud import bigquery
 GCP_PROJECT = os.environ.get("GCP_PROJECT", "scouting-466001")
 BQ_DATASET  = os.environ.get("BQ_DATASET", "scouting")
 
+# Tables (or views) the app reads. The defaults are the views that union the
+# FBref tables with the soccer-data tables and add a Source column.
+OUTFIELD_TABLE = os.environ.get("BQ_OUTFIELD_TABLE", "outfield_all")
+GOALKEEPER_TABLE = os.environ.get("BQ_GOALKEEPER_TABLE", "goalkeeper_all")
+
 MIN_MINUTES = 450
+MIN_FEATURES = 3          # fewer usable template stats than this: no similarity
+MIN_POOL_COVERAGE = 0.5   # a stat is usable when at least this share of the pool has it
+NOT_ENOUGH_STATS = "Not enough comparable stats for this player in this season"
+
+
+class NotEnoughStatsError(ValueError):
+    """The player-season shares too few template stats with its pool."""
+
+    def __init__(self, message: str = NOT_ENOUGH_STATS) -> None:
+        super().__init__(message)
 
 # Feature templates: one list of columns per position group.
 # All columns must exist in outfield_features / goalkeeper_features.
+# Rows from the newer sources may leave some of them null; see usable_features.
 FEATURE_TEMPLATES = {
     "ATT": [
         # Output metrics (reduced weight by including fewer)
@@ -102,12 +122,14 @@ FEATURE_TEMPLATES = {
 }
 
 
+def table_ref(table: str) -> str:
+    """Fully qualified, backquoted BigQuery name of a table in the dataset."""
+    return f"`{GCP_PROJECT}.{BQ_DATASET}.{table}`"
+
+
 def _fetch_features(bq_client: bigquery.Client, position_group: str, season: str) -> pd.DataFrame:
     """Pull feature table rows for a given position group and season from BigQuery."""
-    if position_group == "GK":
-        table = f"`{GCP_PROJECT}.{BQ_DATASET}.goalkeeper_features`"
-    else:
-        table = f"`{GCP_PROJECT}.{BQ_DATASET}.outfield_features`"
+    table = table_ref(GOALKEEPER_TABLE if position_group == "GK" else OUTFIELD_TABLE)
 
     sql = f"""
         SELECT *
@@ -138,6 +160,56 @@ def _cosine_similarity(query_vec: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     return (matrix / norms) @ query_norm
 
 
+def usable_features(pool_df: pd.DataFrame, query_row, template: list[str]) -> list[str]:
+    """Template features the query player has (non-null) and at least
+    MIN_POOL_COVERAGE of the pool has, in template order."""
+    usable = []
+    for col in template:
+        if col not in pool_df.columns:
+            continue
+        if pd.isna(query_row.get(col)):
+            continue
+        if pool_df[col].notna().mean() < MIN_POOL_COVERAGE:
+            continue
+        usable.append(col)
+    return usable
+
+
+def rank_similar(
+    pool_df: pd.DataFrame,
+    player: str,
+    season: str,
+    template: list[str],
+    top_n: int,
+) -> pd.DataFrame:
+    """Steps 3-6 on a fetched pool: pick the usable features, z-score, cosine,
+    drop the query player, top N. Raises NotEnoughStatsError when fewer than
+    MIN_FEATURES template stats are usable. With every stat present this is
+    exactly the original full-template ranking."""
+    pool_reset = pool_df.reset_index(drop=True).copy()
+    query_mask = (pool_reset["Player"] == player) & (pool_reset["Season"] == season)
+    positional_idx = pool_reset.index[query_mask][0]
+
+    feature_cols = usable_features(pool_reset, pool_reset.iloc[positional_idx], template)
+    if len(feature_cols) < MIN_FEATURES:
+        raise NotEnoughStatsError()
+
+    # ── 4. Z-score the feature matrix ─────────────────────────────────────────
+    X         = _zscore_matrix(pool_reset, feature_cols)
+    query_vec = X[positional_idx]
+
+    # ── 5. Cosine similarity against full pool ────────────────────────────────
+    pool_reset["similarity_score"] = _cosine_similarity(query_vec, X)
+
+    # ── 6. Exclude the query player themselves, sort, return top N ────────────
+    return (
+        pool_reset[~query_mask]
+        .sort_values("similarity_score", ascending=False)
+        .head(top_n)[["Player", "Squad", "League", "Season", "position_group", "minutes", "similarity_score"]]
+        .reset_index(drop=True)
+    )
+
+
 def find_similar_players(
     player: str,
     season: str,
@@ -163,6 +235,12 @@ def find_similar_players(
     pd.DataFrame
         Columns: Player, Squad, League, Season, position_group,
                  minutes, similarity_score (0–1, descending).
+
+    Raises
+    ------
+    NotEnoughStatsError
+        When fewer than MIN_FEATURES template stats are usable (see
+        usable_features). It is a ValueError.
     """
     if bq_client is None:
         bq_client = bigquery.Client(project=GCP_PROJECT)
@@ -170,11 +248,11 @@ def find_similar_players(
     # ── 1. Find the player's position group ──────────────────────────────────
     lookup_sql = f"""
         SELECT position_group
-        FROM `{GCP_PROJECT}.{BQ_DATASET}.outfield_features`
+        FROM {table_ref(OUTFIELD_TABLE)}
         WHERE Player = @player AND Season = @season
         UNION ALL
         SELECT position_group
-        FROM `{GCP_PROJECT}.{BQ_DATASET}.goalkeeper_features`
+        FROM {table_ref(GOALKEEPER_TABLE)}
         WHERE Player = @player AND Season = @season
         LIMIT 1
     """
@@ -205,33 +283,7 @@ def find_similar_players(
             f"{MIN_MINUTES}-minute threshold and cannot be used as a query."
         )
 
-    # ── 4. Z-score the feature matrix ─────────────────────────────────────────
-    X          = _zscore_matrix(pool_df, feature_cols)
-    query_idx  = pool_df.index[query_mask][0]
-    # Reindex because _zscore_matrix resets to positional index
-    positional_idx = pool_df.reset_index(drop=True).index[
-        (pool_df.reset_index(drop=True)["Player"] == player) &
-        (pool_df.reset_index(drop=True)["Season"] == season)
-    ][0]
-    query_vec  = X[positional_idx]
-
-    # ── 5. Cosine similarity against full pool ────────────────────────────────
-    scores = _cosine_similarity(query_vec, X)
-
-    pool_reset = pool_df.reset_index(drop=True).copy()
-    pool_reset["similarity_score"] = scores
-
-    # ── 6. Exclude the query player themselves, sort, return top N ────────────
-    results = (
-        pool_reset[
-            ~((pool_reset["Player"] == player) & (pool_reset["Season"] == season))
-        ]
-        .sort_values("similarity_score", ascending=False)
-        .head(top_n)[["Player", "Squad", "League", "Season", "position_group", "minutes", "similarity_score"]]
-        .reset_index(drop=True)
-    )
-
-    return results
+    return rank_similar(pool_df, player, season, feature_cols, top_n)
 
 
 def get_player_stats(
@@ -246,10 +298,10 @@ def get_player_stats(
     if bq_client is None:
         bq_client = bigquery.Client(project=GCP_PROJECT)
 
-    for table in ["outfield_features", "goalkeeper_features"]:
+    for table in [OUTFIELD_TABLE, GOALKEEPER_TABLE]:
         sql = f"""
             SELECT *
-            FROM `{GCP_PROJECT}.{BQ_DATASET}.{table}`
+            FROM {table_ref(table)}
             WHERE Player = @player AND Season = @season
             LIMIT 1
         """

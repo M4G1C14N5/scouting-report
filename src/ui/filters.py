@@ -1,7 +1,10 @@
 """Pure filtering of the player index for the sidebar and the search box.
 
 The index has one row per player-season with the columns
-Player, Season, Squad, League, Position, position_group, minutes.
+Player, Season, Squad, League, Position, position_group, minutes, Source.
+
+Seasons sort chronologically with stats.season_sort_key, so European
+("2025-2026") and US ("2026") labels interleave correctly.
 """
 
 from __future__ import annotations
@@ -10,9 +13,11 @@ from typing import Iterable
 
 import pandas as pd
 
+from src.ui.stats import season_sort_key
+
 
 def seasons_desc(index: pd.DataFrame) -> list[str]:
-    return sorted(index["Season"].dropna().unique().tolist(), reverse=True)
+    return sorted(index["Season"].dropna().unique().tolist(), key=season_sort_key, reverse=True)
 
 
 def leagues(index: pd.DataFrame) -> list[str]:
@@ -41,7 +46,9 @@ def search_options(filtered: pd.DataFrame) -> pd.DataFrame:
     """One row per player: their latest season in view (most minutes on a tie)."""
     if filtered.empty:
         return filtered.copy()
-    latest = (filtered.sort_values(["Season", "minutes"], ascending=[False, False])
+    rank = {s: i for i, s in enumerate(sorted(filtered["Season"].dropna().unique(), key=season_sort_key))}
+    latest = (filtered.sort_values(["Season", "minutes"], ascending=[False, False],
+                                   key=lambda col: col.map(rank) if col.name == "Season" else col)
               .drop_duplicates("Player", keep="first"))
     return latest.sort_values("Player", key=lambda s: s.str.casefold()).reset_index(drop=True)
 
@@ -51,7 +58,7 @@ def option_label(player: str, club: str, league: str) -> str:
 
 
 def player_seasons(filtered: pd.DataFrame, player: str) -> list[str]:
-    return sorted(filtered.loc[filtered["Player"] == player, "Season"].unique().tolist())
+    return sorted(filtered.loc[filtered["Player"] == player, "Season"].unique().tolist(), key=season_sort_key)
 
 
 def pick_example(filtered: pd.DataFrame, preferred: Iterable[str]) -> str | None:

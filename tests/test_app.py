@@ -52,11 +52,18 @@ def test_no_selection_shows_hero_onboarding_and_footer(stub_data):
     at = _app()
     md = _markdown(at)
     assert "Scouting <em>Hub</em>" in md
-    assert "Big 5 leagues · 2017-18 to 2023-24 · 16.5k player-seasons" in md
+    assert "19 leagues · FBref 2017-18 to 2023-24 · 2024 to 2026 from API-Football, Understat and ASA" in md
+    assert 'class="fl-hero-meta">BigQuery<' in md
     assert "Set the scope" in md and "Find a player" in md and "Read the profile" in md
     assert at.button(key="try_example").label == "Try an example: Mohamed Salah"
     assert "Thomas Tsangou and Ajaiah Darlington" in md
     assert "FBref → GCS → BigQuery" in md
+    data_credit = md.split("<strong>Data</strong>", 1)[1].split("</div>", 1)[0]
+    for source in ("FBref (Big 5, 2017-18 to 2023-24)", "API-Football", "Understat",
+                   "American Soccer Analysis"):
+        assert source in data_credit, source
+    assert "19 leagues" in md.split('class="fl-brand-sub">', 1)[1].split("<", 1)[0]
+    assert "—" not in md and "–" not in md  # no em or en dashes in the page copy
     assert not at.tabs
     assert "Showing 11 players" in " ".join(c.value for c in at.sidebar.caption)
     assert at.selectbox(key="player_pick").value is None  # nobody auto-selected

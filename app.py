@@ -23,11 +23,12 @@ theme.inject(st)
 
 HERO_TITLE = "Scouting"
 HERO_HIGHLIGHT = "Hub"
-HERO_SUB = "Big 5 leagues · 2017-18 to 2023-24 · 16.5k player-seasons"
-HERO_META = "FBref data, frozen snapshot · BigQuery"
+HERO_SUB = "19 leagues · FBref 2017-18 to 2023-24 · 2024 to 2026 from API-Football, Understat and ASA"
+HERO_META = "BigQuery"
 FOOTER_PARTS = (
-    ("Data", "FBref snapshot, Big 5 leagues, 2017-18 to 2023-24"),
-    ("Pipeline", "FBref → GCS → BigQuery"),
+    ("Data", "FBref (Big 5, 2017-18 to 2023-24), API-Football, Understat (xG, Big 5), "
+             "American Soccer Analysis (US leagues)"),
+    ("Pipeline", "FBref → GCS → BigQuery; API-Football, Understat and ASA → soccer-data → BigQuery"),
     ("Built by", "Thomas Tsangou and Ajaiah Darlington"),
 )
 

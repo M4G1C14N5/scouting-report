@@ -31,6 +31,14 @@ def header_script(player: str, season: str) -> None:
     header.render(fakes.player_stats(player, season))
 
 
+def header_row_script(row: dict) -> None:
+    import pandas as pd
+
+    from src.ui.views import header
+
+    header.render(pd.Series(row))
+
+
 def profile_script(player: str, season: str, group: str, empty_pool: bool) -> None:
     from src.ui.views import profile
     from tests import fakes
@@ -86,6 +94,36 @@ def test_header_outfield_identity_and_kpis():
     for text in ("Mohamed Salah", ">MS<", "Forward", "Liverpool", "Premier League", "2023-24",
                  "Age 31", "EGY", "Minutes", "Goals", "Assists", "xG", "xAG", "fl-kpi-row"):
         assert text in md, text
+
+
+def _new_source_row(**extra) -> dict:
+    row = fakes.player_stats("Mohamed Salah", fakes.LATEST).to_dict()
+    row.update(Season="2026", League="USL League One", Squad="Greenville Triumph",
+               Source="American Soccer Analysis", **extra)
+    return row
+
+
+def test_header_shows_the_source_as_a_chip():
+    md = _markdown(_run(header_row_script, _new_source_row()))
+    assert '<span class="fl-chip">American Soccer Analysis</span>' in md
+    assert '<span class="fl-chip">2026</span>' in md  # a US calendar season stays "2026"
+    assert md.index("USL League One") < md.index("American Soccer Analysis")
+
+
+def test_header_fbref_rows_get_the_fbref_chip():
+    md = _markdown(_run(header_script, "Mohamed Salah", fakes.LATEST))
+    assert '<span class="fl-chip">FBref</span>' in md
+
+
+def test_header_without_a_source_has_no_source_chip():
+    row = _new_source_row()
+    row.pop("Source")
+    without = _markdown(_run(header_row_script, row))
+    assert "American Soccer Analysis" not in without and "FBref" not in without
+    row["Source"] = None
+    blank = _markdown(_run(header_row_script, row))
+    assert ">None<" not in blank
+    assert blank.count('class="fl-chip"') == without.count('class="fl-chip"')
 
 
 def test_header_goalkeeper_kpis():
@@ -190,6 +228,26 @@ def test_similar_error_is_readable(monkeypatch):
     monkeypatch.setattr(data, "similar_players", boom)
     at = _run(similar_script, "Mohamed Salah", fakes.LATEST)
     assert at.error[0].value == "Couldn't compute similar players."
+
+
+def test_similar_not_enough_stats_shows_the_message_not_an_error(monkeypatch):
+    from src.similarity import NotEnoughStatsError
+
+    def not_enough(_bq, player, season, group):
+        raise NotEnoughStatsError()
+
+    monkeypatch.setattr(data, "similar_players", not_enough)
+    at = _run(similar_script, "Mohamed Salah", fakes.LATEST)
+    md = _markdown(at)
+    assert "Not enough comparable stats for this player in this season" in md
+    assert "fl-empty" in md
+    assert not at.error
+    assert len(at.dataframe) == 0
+
+
+def test_similar_method_line_says_only_shared_stats_are_used(stub_similar):
+    at = _run(similar_script, "Mohamed Salah", fakes.LATEST)
+    assert "stats this player has and at least half the pool has" in _captions(at)
 
 
 def test_similar_selection_is_cleared_when_the_player_changes(stub_similar):

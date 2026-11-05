@@ -6,11 +6,14 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from src.similarity import MIN_MINUTES
+from src.similarity import MIN_FEATURES, MIN_MINUTES, NotEnoughStatsError
 from src.ui import build, data, metrics, state, stats, theme, viz
 
 METHOD = ("Method: cosine similarity on z-scored stats within the position pool "
-          f"(same position and season, {MIN_MINUTES}+ minutes).")
+          f"(same position and season, {MIN_MINUTES}+ minutes), using only the stats "
+          "this player has and at least half the pool has.")
+NOT_ENOUGH_BODY = (f"Similarity needs at least {MIN_FEATURES} of the position's stats that this player "
+                   "has and at least half the pool has. The data for this player-season has fewer.")
 
 COLUMN_CONFIG = {
     "Player": st.column_config.TextColumn("Player", width="medium"),
@@ -43,6 +46,9 @@ def render(bq, pool: pd.DataFrame | None, row) -> None:
     top_n = st.slider("Players to show", min_value=5, max_value=data.SIMILAR_MAX, value=10, key="top_n")
     try:
         matches = data.similar_players(bq, player, season, group)
+    except NotEnoughStatsError as exc:
+        st.markdown(theme.empty_state_html(str(exc), NOT_ENOUGH_BODY), unsafe_allow_html=True)
+        return
     except Exception as exc:  # noqa: BLE001 - BigQuery, auth and "not in pool" all end here
         theme.error_box(st, "Couldn't compute similar players.", exc)
         return

@@ -114,10 +114,22 @@ def test_per90(total, nineties, expected):
 
 @pytest.mark.parametrize(
     "season, short",
-    [("2022-2023", "2022-23"), ("2019-2020", "2019-20"), ("2023", "2023"), ("All", "All")],
+    [("2022-2023", "2022-23"), ("2019-2020", "2019-20"), ("2023", "2023"), ("All", "All"),
+     ("2025-2026", "2025-26"), ("2026", "2026")],
 )
 def test_short_season(season, short):
     assert stats.short_season(season) == short
+
+
+def test_season_sort_key_orders_by_leading_year_then_label_length():
+    seasons = ["2023-2024", "2024", "2026", "2025-2026", "2017-2018", "2025", "2024-2025"]
+    assert sorted(seasons, key=stats.season_sort_key, reverse=True) ==         ["2026", "2025-2026", "2025", "2024-2025", "2024", "2023-2024", "2017-2018"]
+    assert stats.season_sort_key("2025-2026") == (2025, 9)
+    assert stats.season_sort_key("2026") == (2026, 4)
+
+
+def test_season_sort_key_sorts_odd_labels_below_every_season():
+    assert sorted(["All", "2024"], key=stats.season_sort_key) == ["All", "2024"]
 
 
 @pytest.mark.parametrize(

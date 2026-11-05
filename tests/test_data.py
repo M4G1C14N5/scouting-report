@@ -40,19 +40,23 @@ def norm(sql: str) -> str:
     return " ".join(sql.split())
 
 
-def test_load_player_index_runs_todays_sql():
+def test_load_player_index_reads_both_views_with_source():
     bq = FakeBQ(pd.DataFrame({"Player": ["A"]}))
     out = data.load_player_index(bq)
     expected = (
-        f"SELECT Player, Season, Squad, League, Position, position_group, minutes "
-        f"FROM `{data.GCP_PROJECT}.{data.BQ_DATASET}.outfield_features` "
+        f"SELECT Player, Season, Squad, League, Position, position_group, minutes, Source "
+        f"FROM `{data.GCP_PROJECT}.{data.BQ_DATASET}.outfield_all` "
         f"UNION ALL "
-        f"SELECT Player, Season, Squad, League, Position, position_group, minutes "
-        f"FROM `{data.GCP_PROJECT}.{data.BQ_DATASET}.goalkeeper_features` "
+        f"SELECT Player, Season, Squad, League, Position, position_group, minutes, Source "
+        f"FROM `{data.GCP_PROJECT}.{data.BQ_DATASET}.goalkeeper_all` "
         f"ORDER BY Player, Season"
     )
     assert norm(bq.calls[0]) == expected
     assert out["Player"].tolist() == ["A"]
+
+
+def test_data_uses_the_similarity_table_config():
+    assert data.OUTFIELD_TABLE == "outfield_all" and data.GOALKEEPER_TABLE == "goalkeeper_all"
 
 
 def test_load_player_index_is_cached():
@@ -62,8 +66,8 @@ def test_load_player_index_is_cached():
     assert len(bq.calls) == 1
 
 
-@pytest.mark.parametrize("group, table", [("GK", "goalkeeper_features"), ("ATT", "outfield_features"),
-                                          ("MID", "outfield_features"), ("DEF", "outfield_features")])
+@pytest.mark.parametrize("group, table", [("GK", "goalkeeper_all"), ("ATT", "outfield_all"),
+                                          ("MID", "outfield_all"), ("DEF", "outfield_all")])
 def test_position_pool_runs_todays_sql(group, table):
     bq = FakeBQ(pd.DataFrame({"Player": ["A"]}))
     data.position_pool(bq, group, "2023-2024")

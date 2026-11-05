@@ -19,9 +19,10 @@ def chips_for(row: Mapping[str, Any]) -> list[str]:
     age = stats.to_float(row.get("Age"))
     if age is not None:
         chips.append(theme.chip(f"Age {int(age)}"))
-    nation = row.get("Nation")
-    if not stats.is_missing(nation) and str(nation).strip():
-        chips.append(theme.chip(str(nation).strip()))
+    for key in ("Nation", "Source"):  # Source: which data provider the row comes from
+        value = row.get(key)
+        if not stats.is_missing(value) and str(value).strip():
+            chips.append(theme.chip(str(value).strip()))
     return chips
 
 
