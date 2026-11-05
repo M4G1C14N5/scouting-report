@@ -1,0 +1,448 @@
+"""The soccer-data loader: mapping, SQL and the CLI. Never touches BigQuery."""
+
+from __future__ import annotations
+
+import math
+import re
+import runpy
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import duckdb
+import pandas as pd
+import pytest
+
+from src import soccer_data_loader as loader
+from tests.schema_utils import feature_columns
+
+ROOT = Path(__file__).resolve().parents[1]
+
+MART_COLUMNS = [
+    "source", "source_player_id", "league_id", "league_code", "league_name", "country",
+    "season", "season_label", "player_name", "birth_date", "nationality", "team_id", "team",
+    "teams", "stint_count", "position_group", "position_detail", "minutes", "appearances",
+    "starts", "goals", "assists", "penalties_scored", "shots", "shots_on_target", "key_passes",
+    "passes", "pass_completion_pct", "passes_completed_over_expected_p100",
+    "share_team_touches", "tackles", "interceptions", "blocks", "duels", "duels_won",
+    "dribbles_attempted", "dribbles_won", "fouls_drawn", "fouls_committed", "yellow_cards",
+    "red_cards", "saves", "goals_conceded", "penalties_saved", "rating", "xg", "npxg", "xa",
+    "goals_added_raw", "goals_added_above_avg", "ga_dribbling", "ga_fouling",
+    "ga_interrupting", "ga_passing", "ga_receiving", "ga_shooting",
+]
+
+
+def _row(**values) -> dict:
+    row = {c: None for c in MART_COLUMNS}
+    row.update(values)
+    return row
+
+
+def _born(text: str | None):
+    return pd.Timestamp(text) if text else None
+
+
+ROWS = [
+    # ASA striker: no penalties, npxg or defensive stats
+    _row(source="asa", league_code="MLS", season_label="2025", player_name="Carlos Striker",
+         birth_date=_born("2000-03-02"), nationality="USA", team="Austin FC",
+         position_group="ATT", minutes=1800, goals=10, assists=4, shots=50, shots_on_target=20,
+         key_passes=30, passes=600, pass_completion_pct=75.5, xg=8.0, xa=3.0),
+    # API-Football + Understat midfielder
+    _row(source="apif", league_code="ENG1", season_label="2025-2026",
+         player_name="Midfield Maestro", birth_date=_born("2001-08-01"), nationality="England",
+         team="Arsenal", position_group="MID", minutes=2700, goals=6, assists=8,
+         penalties_scored=2, shots=30, shots_on_target=12, key_passes=60, passes=2000,
+         tackles=50, interceptions=30, blocks=10, yellow_cards=5, red_cards=0,
+         saves=0, goals_conceded=0, xg=4.5, npxg=3.0, xa=6.0),
+    # apif_matches League Two defender: no birth date, nationality or xG; zero shots
+    _row(source="apif_matches", league_code="ENG4", season_label="2024-2025",
+         player_name="Lower Defender", team="Walsall", position_group="DEF", minutes=900,
+         goals=0, assists=1, penalties_scored=0, shots=0, shots_on_target=0, key_passes=3,
+         passes=400, tackles=30, interceptions=20, blocks=5, yellow_cards=2, red_cards=1),
+    # API-Football keeper
+    _row(source="apif", league_code="ESP1", season_label="2024-2025", player_name="Keeper One",
+         birth_date=_born("1995-01-15"), nationality="Spain", team="Getafe",
+         position_group="GK", minutes=1800, saves=60, goals_conceded=20, penalties_saved=1,
+         goals=0, assists=0, shots=0),
+    # ASA keeper: dropped (ASA has no keeper stats)
+    _row(source="asa", league_code="MLS", season_label="2024", player_name="Asa Keeper",
+         team="LA Galaxy", position_group="GK", minutes=2000, goals=0, xg=0.0),
+    # Null position: dropped
+    _row(source="apif", league_code="ENG1", season_label="2025-2026",
+         player_name="Nobody Known", team="Burnley", position_group=None, minutes=500),
+    # Same name, same season, different clubs (one outfield, one keeper)
+    _row(source="apif", league_code="ENG1", season_label="2025-2026", player_name="J. Smith",
+         team="Chelsea", position_group="ATT", minutes=1000, goals=5, shots=20,
+         shots_on_target=10, penalties_scored=1),
+    _row(source="apif", league_code="SCO1", season_label="2025-2026", player_name="J. Smith",
+         team="Celtic", position_group="GK", minutes=3000, saves=0, goals_conceded=0),
+    # Same name, same club name, different leagues: needs the league too
+    _row(source="apif", league_code="POR1", season_label="2025-2026", player_name="R. Costa",
+         team="Sporting", position_group="DEF", minutes=1200),
+    _row(source="apif", league_code="BEL1", season_label="2025-2026", player_name="R. Costa",
+         team="Sporting", position_group="DEF", minutes=1300),
+]
+
+
+def players() -> pd.DataFrame:
+    return pd.DataFrame(ROWS, columns=MART_COLUMNS)
+
+
+@pytest.fixture(scope="module")
+def frames():
+    report: dict = {}
+    outfield, goalkeeper = loader.build_frames(players(), report=report)
+    return outfield, goalkeeper, report
+
+
+def _one(frame: pd.DataFrame, player: str) -> pd.Series:
+    hit = frame[frame["Player"] == player]
+    assert len(hit) == 1, (player, list(frame["Player"]))
+    return hit.iloc[0]
+
+
+def _null(value) -> bool:
+    return value is None or (isinstance(value, float) and math.isnan(value)) or pd.isna(value)
+
+
+# --- constants ---------------------------------------------------------------
+
+def test_leagues_and_seasons():
+    assert loader.LEAGUES == {
+        "ENG1": "Premier League", "ESP1": "La Liga", "GER1": "Bundesliga", "ITA1": "Serie A",
+        "FRA1": "Ligue 1", "ENG2": "Championship", "ENG3": "League One", "ENG4": "League Two",
+        "POR1": "Primeira Liga", "NED1": "Eredivisie", "BEL1": "Belgian Pro League",
+        "AUT1": "Austrian Bundesliga", "SUI1": "Swiss Super League", "DEN1": "Danish Superliga",
+        "SCO1": "Scottish Premiership", "MLS": "MLS", "USLC": "USL Championship",
+        "USL1": "USL League One", "MLSNP": "MLS NEXT Pro",
+    }
+    assert loader.SEASONS == {"2024-2025", "2025-2026", "2024", "2025", "2026"}
+
+
+def test_column_lists_match_schema_sql():
+    assert loader.OUTFIELD_COLUMNS == feature_columns("outfield_features")
+    assert loader.GOALKEEPER_COLUMNS == feature_columns("goalkeeper_features")
+
+
+# --- warehouse ---------------------------------------------------------------
+
+def test_warehouse_path_precedence(monkeypatch, tmp_path):
+    monkeypatch.delenv("SOCCER_DATA_WAREHOUSE", raising=False)
+    monkeypatch.delenv("SOCCER_DATA_ROOT", raising=False)
+    assert loader.warehouse_path() == Path.home() / "soccer-data" / "warehouse.duckdb"
+    monkeypatch.setenv("SOCCER_DATA_ROOT", str(tmp_path))
+    assert loader.warehouse_path() == tmp_path / "warehouse.duckdb"
+    monkeypatch.setenv("SOCCER_DATA_WAREHOUSE", str(tmp_path / "w.duckdb"))
+    assert loader.warehouse_path() == tmp_path / "w.duckdb"
+
+
+def test_read_players_filters_league_season_and_minutes(tmp_path):
+    path = tmp_path / "warehouse.duckdb"
+    extra = [
+        _row(source="apif", league_code="ARG1", season_label="2025", player_name="Other League",
+             position_group="MID", minutes=2000),
+        _row(source="apif", league_code="ENG1", season_label="2023-2024",
+             player_name="Old Season", position_group="MID", minutes=2000),
+        _row(source="apif", league_code="ENG1", season_label="2025-2026",
+             player_name="Few Minutes", position_group="MID", minutes=89),
+        _row(source="apif", league_code="ENG1", season_label="2025-2026",
+             player_name="Just Enough", position_group="MID", minutes=90),
+    ]
+    frame = pd.DataFrame(ROWS + extra, columns=MART_COLUMNS)
+    con = duckdb.connect(str(path))
+    con.register("src_frame", frame)
+    con.execute("CREATE TABLE player_season_stats AS SELECT * FROM src_frame")
+    con.close()
+
+    got = loader.read_players(path)
+    names = set(got["player_name"])
+    assert "Just Enough" in names
+    assert not names & {"Other League", "Old Season", "Few Minutes"}
+    assert len(got) == len(ROWS) + 1
+
+
+# --- build_frames ------------------------------------------------------------
+
+def test_frames_have_exactly_the_hub_columns_plus_source(frames):
+    outfield, goalkeeper, _ = frames
+    assert list(outfield.columns) == feature_columns("outfield_features") + ["Source"]
+    assert list(goalkeeper.columns) == feature_columns("goalkeeper_features") + ["Source"]
+
+
+def test_identity_league_season_position(frames):
+    outfield, goalkeeper, _ = frames
+    asa = _one(outfield, "Carlos Striker")
+    assert (asa["League"], asa["Season"], asa["Squad"], asa["Nation"]) == (
+        "MLS", "2025", "Austin FC", "USA")
+    assert (asa["Position"], asa["position_group"]) == ("FW", "ATT")
+    mid = _one(outfield, "Midfield Maestro")
+    assert (mid["League"], mid["Season"], mid["Position"]) == ("Premier League", "2025-2026", "MF")
+    dfn = _one(outfield, "Lower Defender")
+    assert (dfn["League"], dfn["Season"], dfn["Position"]) == ("League Two", "2024-2025", "DF")
+    gk = _one(goalkeeper, "Keeper One")
+    assert (gk["League"], gk["Position"], gk["position_group"]) == ("La Liga", "GK", "GK")
+    assert set(outfield["position_group"]) <= {"ATT", "MID", "DEF"}
+    assert set(goalkeeper["position_group"]) == {"GK"}
+
+
+def test_age_on_season_start_and_born(frames):
+    outfield, goalkeeper, _ = frames
+    # US season starts 1 March 2025; born 2 March 2000 -> still 24
+    asa = _one(outfield, "Carlos Striker")
+    assert asa["Age"] == 24.0 and asa["Born"] == 2000.0
+    # European season starts 1 August 2025; born 1 August 2001 -> turns 24 that day
+    mid = _one(outfield, "Midfield Maestro")
+    assert mid["Age"] == 24.0 and mid["Born"] == 2001.0
+    # 1 August 2024, born 15 January 1995 -> 29
+    assert _one(goalkeeper, "Keeper One")["Age"] == 29.0
+    dfn = _one(outfield, "Lower Defender")
+    assert _null(dfn["Age"]) and _null(dfn["Born"]) and _null(dfn["Nation"])
+
+
+def test_outfield_maths(frames):
+    outfield, _, _ = frames
+    mid = _one(outfield, "Midfield Maestro")
+    assert mid["minutes"] == 2700 and mid["nineties_played"] == pytest.approx(30.0)
+    assert mid["std_goals"] == 6 and mid["std_assists"] == 8
+    assert mid["penalty_kicks_made"] == 2 and mid["nonpen_goals"] == 4
+    assert mid["std_xg"] == 4.5 and mid["npxg"] == 3.0
+    assert mid["xag"] == 6.0 and mid["expected_assisted_goals"] == 6.0
+    assert mid["shots_total"] == 30 and mid["shots_on_target"] == 12
+    assert mid["shots_on_target_pct"] == pytest.approx(40.0)
+    assert mid["goals_per_shot"] == pytest.approx(0.2)
+    assert mid["goals_per_shot_on_target"] == pytest.approx(0.5)
+    assert mid["npxg_per_shot"] == pytest.approx(0.1)
+    assert mid["goals_minus_xg"] == pytest.approx(1.5)
+    assert mid["nonpen_goals_minus_npxg"] == pytest.approx(1.0)
+    assert mid["goals_per_90"] == pytest.approx(0.2)
+    assert mid["nonpen_goals_per_90"] == pytest.approx(4 / 30)
+    assert mid["xg_per_90"] == pytest.approx(0.15)
+    assert mid["npxg_per_90"] == pytest.approx(0.1)
+    assert mid["shots_total_per_90"] == pytest.approx(1.0)
+    assert mid["shots_on_target_per_90"] == pytest.approx(0.4)
+    assert mid["assists_per_90"] == pytest.approx(8 / 30)
+    assert mid["xag_per_90"] == pytest.approx(0.2)
+    assert mid["npxg_plus_xag_per_90"] == pytest.approx(0.3)
+    assert mid["key_passes"] == 60 and mid["passes_attempted_total"] == 2000
+    assert mid["tackles_total"] == 50 and mid["interceptions"] == 30
+    assert mid["tackles_plus_interceptions"] == 80 and mid["blocks_total"] == 10
+    assert mid["yellow_cards"] == 5 and mid["red_cards"] == 0
+    # apif has no pass completion: stays null
+    assert _null(mid["passes_completion_pct_total"])
+
+
+def test_division_by_zero_gives_null(frames):
+    outfield, _, _ = frames
+    dfn = _one(outfield, "Lower Defender")
+    assert dfn["shots_total"] == 0
+    for col in ("shots_on_target_pct", "goals_per_shot", "goals_per_shot_on_target",
+                "npxg_per_shot"):
+        assert _null(dfn[col]), col
+    assert dfn["goals_per_90"] == 0.0  # 0 goals over 10 nineties is a real zero
+
+
+def test_null_stays_null_for_asa(frames):
+    outfield, _, _ = frames
+    asa = _one(outfield, "Carlos Striker")
+    for col in ("tackles_total", "interceptions", "tackles_plus_interceptions", "blocks_total",
+                "yellow_cards", "red_cards", "penalty_kicks_made", "nonpen_goals",
+                "nonpen_goals_per_90", "npxg", "npxg_per_90", "npxg_per_shot",
+                "nonpen_goals_minus_npxg", "npxg_plus_xag_per_90"):
+        assert _null(asa[col]), col
+    assert asa["passes_completion_pct_total"] == 75.5
+    assert asa["std_xg"] == 8.0 and asa["xg_per_90"] == pytest.approx(0.4)
+    assert asa["goals_minus_xg"] == pytest.approx(2.0)
+
+
+def test_unmapped_metrics_are_null(frames):
+    outfield, goalkeeper, _ = frames
+    mapped = {
+        "minutes", "nineties_played", "std_goals", "std_assists", "nonpen_goals",
+        "penalty_kicks_made", "yellow_cards", "red_cards", "std_xg", "npxg", "xag",
+        "goals_per_90", "assists_per_90", "nonpen_goals_per_90", "xg_per_90", "xag_per_90",
+        "npxg_per_90", "npxg_plus_xag_per_90", "shots_total", "shots_on_target",
+        "shots_on_target_pct", "shots_total_per_90", "shots_on_target_per_90",
+        "goals_per_shot", "goals_per_shot_on_target", "npxg_per_shot", "goals_minus_xg",
+        "nonpen_goals_minus_npxg", "passes_attempted_total", "passes_completion_pct_total",
+        "expected_assisted_goals", "key_passes", "tackles_total", "blocks_total",
+        "interceptions", "tackles_plus_interceptions",
+        "goals_against", "goals_against_per_90", "shots_on_target_against", "saves",
+        "save_pct", "penalty_kicks_saved",
+    }
+    for frame in (outfield, goalkeeper):
+        for col in frame.columns:
+            if col in mapped or col in loader.IDENTITY_COLUMNS or col == "Source":
+                continue
+            assert frame[col].isna().all(), col
+
+
+def test_keeper_mapping(frames):
+    _, goalkeeper, _ = frames
+    gk = _one(goalkeeper, "Keeper One")
+    assert gk["goals_against"] == 20 and gk["saves"] == 60
+    assert gk["shots_on_target_against"] == 80
+    assert gk["save_pct"] == pytest.approx(75.0)
+    assert gk["goals_against_per_90"] == pytest.approx(1.0)
+    assert gk["penalty_kicks_saved"] == 1
+    assert gk["nineties_played"] == pytest.approx(20.0)
+    # nothing faced: save % is null, not 0 or 100
+    assert _null(_one(goalkeeper, "J. Smith (Celtic)")["save_pct"])
+
+
+def test_dropped_rows_are_counted(frames):
+    outfield, goalkeeper, report = frames
+    names = set(outfield["Player"]) | set(goalkeeper["Player"])
+    assert "Asa Keeper" not in names and "Nobody Known" not in names
+    assert report["dropped_null_position"] == 1
+    assert report["dropped_asa_keepers"] == 1
+    assert len(outfield) == 6 and len(goalkeeper) == 2
+
+
+def test_source_strings(frames):
+    outfield, goalkeeper, _ = frames
+    assert _one(outfield, "Carlos Striker")["Source"] == "American Soccer Analysis"
+    assert _one(outfield, "Midfield Maestro")["Source"] == "API-Football + Understat"
+    assert _one(outfield, "J. Smith (Chelsea)")["Source"] == "API-Football"
+    assert _one(outfield, "Lower Defender")["Source"] == "API-Football match data"
+    assert _one(goalkeeper, "Keeper One")["Source"] == "API-Football"
+
+
+def test_collisions_are_renamed(frames):
+    outfield, goalkeeper, report = frames
+    names = set(outfield["Player"]) | set(goalkeeper["Player"])
+    assert "J. Smith" not in names and "R. Costa" not in names
+    assert "J. Smith (Chelsea)" in set(outfield["Player"])
+    assert "J. Smith (Celtic)" in set(goalkeeper["Player"])
+    assert {"R. Costa (Sporting, Primeira Liga)",
+            "R. Costa (Sporting, Belgian Pro League)"} <= set(outfield["Player"])
+    both = pd.concat([outfield[["Player", "Season"]], goalkeeper[["Player", "Season"]]])
+    assert not both.duplicated().any()
+    assert report["renamed"] == 4
+    assert len(report["renamed_examples"]) >= 3
+
+
+def test_same_name_same_club_falls_back_to_birth_year_then_a_number():
+    # Real data has these: two "A. Koné" at Reims in one season, both born 2005.
+    common = dict(source="apif", league_code="FRA1", season_label="2024-2025", team="Reims",
+                  position_group="DEF")
+    rows = [
+        _row(player_name="B. Twin", birth_date=_born("2004-07-11"), minutes=270, **common),
+        _row(player_name="B. Twin", birth_date=_born("2005-12-09"), minutes=1409, **common),
+        _row(player_name="A. Same", birth_date=_born("2005-04-22"), minutes=131, **common),
+        _row(player_name="A. Same", birth_date=_born("2005-05-14"), minutes=1430, **common),
+        _row(player_name="Z. None", minutes=360, **common),
+        _row(player_name="Z. None", minutes=3240, **common),
+    ]
+    report: dict = {}
+    outfield, _ = loader.build_frames(pd.DataFrame(rows, columns=MART_COLUMNS), report=report)
+    by_minutes = dict(zip(outfield["minutes"], outfield["Player"]))
+    assert by_minutes[270] == "B. Twin (Reims, Ligue 1, born 2004)"
+    assert by_minutes[1409] == "B. Twin (Reims, Ligue 1, born 2005)"
+    # same birth year: numbered by minutes, most minutes first
+    assert by_minutes[1430] == "A. Same (Reims, Ligue 1, #1)"
+    assert by_minutes[131] == "A. Same (Reims, Ligue 1, #2)"
+    assert by_minutes[3240] == "Z. None (Reims, Ligue 1, #1)"
+    assert by_minutes[360] == "Z. None (Reims, Ligue 1, #2)"
+    assert report["renamed"] == 6
+
+
+# --- view SQL ----------------------------------------------------------------
+
+FBREF_COLUMNS = [("Player", "STRING"), ("Age", "INTEGER"), ("minutes", "INT64"),
+                 ("save_pct", "FLOAT"), ("Season", "STRING")]
+
+
+def test_view_sql_casts_v2_columns_and_names_only_its_tables():
+    sql = loader.view_sql("goalkeeper_features", FBREF_COLUMNS)
+    assert re.search(r"CREATE OR REPLACE VIEW `[\w-]+\.scouting\.goalkeeper_all`", sql)
+    first, second = sql.split("UNION ALL")
+    assert "'FBref' AS Source" in first
+    assert "CAST(Age AS INT64) AS Age" in second
+    assert "CAST(minutes AS INT64) AS minutes" in second
+    assert "CAST(save_pct AS FLOAT64) AS save_pct" in second
+    assert "CAST(Player AS STRING) AS Player" in second
+    assert re.search(r"\bSource\b", second)
+    tables = re.findall(r"FROM\s+`([^`]+)`", sql)
+    assert [t.split(".")[-1] for t in tables] == ["goalkeeper_features", "goalkeeper_features_v2"]
+    referenced = {t.split(".")[-1] for t in re.findall(r"`([^`]+)`", sql)}
+    assert referenced == {"goalkeeper_all", "goalkeeper_features", "goalkeeper_features_v2"}
+
+
+# --- load (fake client) ------------------------------------------------------
+
+class FakeJob:
+    def result(self):
+        return self
+
+
+class FakeClient:
+    def __init__(self, schemas: dict[str, list[tuple[str, str]]]):
+        self.schemas = schemas
+        self.loads: list[tuple[str, pd.DataFrame, object]] = []
+        self.queries: list[str] = []
+
+    def get_table(self, ref: str):
+        name = ref.split(".")[-1]
+        fields = [SimpleNamespace(name=n, field_type=t) for n, t in self.schemas[name]]
+        return SimpleNamespace(schema=fields)
+
+    def load_table_from_dataframe(self, frame, ref, job_config=None):
+        self.loads.append((ref, frame, job_config))
+        return FakeJob()
+
+    def query(self, sql):
+        self.queries.append(sql)
+        return FakeJob()
+
+
+def _live_schema(table: str) -> list[tuple[str, str]]:
+    ints = {"Age", "Born", "minutes", "std_goals", "goals_against", "saves"}
+    out = []
+    for col in feature_columns(table):
+        if col in loader.IDENTITY_COLUMNS and col not in ints:
+            out.append((col, "STRING"))
+        else:
+            out.append((col, "INTEGER" if col in ints else "FLOAT"))
+    return out
+
+
+def test_load_writes_only_v2_tables_and_views(frames):
+    outfield, goalkeeper, _ = frames
+    client = FakeClient({t: _live_schema(t) for t in ("outfield_features", "goalkeeper_features")})
+    counts = loader.load(outfield, goalkeeper, client)
+    assert counts == {"outfield_features_v2": len(outfield),
+                      "goalkeeper_features_v2": len(goalkeeper)}
+
+    written = [ref.split(".")[-1] for ref, _, _ in client.loads]
+    assert written == ["outfield_features_v2", "goalkeeper_features_v2"]
+    for ref, frame, config in client.loads:
+        assert config.write_disposition == "WRITE_TRUNCATE"
+        names = [f.name for f in config.schema]
+        assert names[-1] == "Source" and config.schema[-1].field_type == "STRING"
+        assert names == list(frame.columns)
+        # integer columns arrive as nullable integers, not floats
+        assert str(frame["Age"].dtype) == "Int64"
+    assert len(client.queries) == 2
+    for sql in client.queries:
+        assert sql.startswith("CREATE OR REPLACE VIEW")
+        assert re.search(r"\.(outfield|goalkeeper)_all`", sql)
+
+
+# --- CLI ---------------------------------------------------------------------
+
+def test_cli_dry_run_never_builds_a_bigquery_client(monkeypatch, capsys):
+    from google.cloud import bigquery
+
+    def boom(*args, **kwargs):
+        raise AssertionError("dry run must not construct a BigQuery client")
+
+    monkeypatch.setattr(bigquery, "Client", boom)
+    monkeypatch.setattr(loader, "read_players", lambda path: players())
+    monkeypatch.setattr(sys, "argv", ["load_soccer_data.py", "--dry-run"])
+    with pytest.raises(SystemExit) as exit_info:
+        runpy.run_path(str(ROOT / "scripts" / "load_soccer_data.py"), run_name="__main__")
+    assert exit_info.value.code in (0, None)
+    out = capsys.readouterr().out
+    assert "Premier League" in out and "2025-2026" in out
+    assert "dry run" in out.lower()

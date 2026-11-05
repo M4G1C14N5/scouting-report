@@ -1,0 +1,456 @@
+"""Load newer seasons from the soccer-data warehouse into BigQuery.
+
+The FBref tables (`outfield_features`, `goalkeeper_features`, 2017-18 to
+2023-24) stay untouched. This module reads soccer-data's
+`player_season_stats` mart (DuckDB, opened read-only), maps each row onto the
+same column contract (schema.sql), and writes `outfield_features_v2` /
+`goalkeeper_features_v2` plus two views, `outfield_all` / `goalkeeper_all`,
+that union the FBref rows and the new rows with a `Source` column.
+
+Metrics a source does not provide stay null: never zero.
+
+CLI: scripts/load_soccer_data.py [--dry-run]
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from google.cloud import bigquery
+
+from src.ui.metrics import PER90_PAIRS
+
+GCP_PROJECT = os.environ.get("GCP_PROJECT", "scouting-466001")
+BQ_DATASET = os.environ.get("BQ_DATASET", "scouting")
+
+# soccer-data league_code -> Hub League string (big five match the FBref strings)
+LEAGUES: dict[str, str] = {
+    "ENG1": "Premier League",
+    "ESP1": "La Liga",
+    "GER1": "Bundesliga",
+    "ITA1": "Serie A",
+    "FRA1": "Ligue 1",
+    "ENG2": "Championship",
+    "ENG3": "League One",
+    "ENG4": "League Two",
+    "POR1": "Primeira Liga",
+    "NED1": "Eredivisie",
+    "BEL1": "Belgian Pro League",
+    "AUT1": "Austrian Bundesliga",
+    "SUI1": "Swiss Super League",
+    "DEN1": "Danish Superliga",
+    "SCO1": "Scottish Premiership",
+    "MLS": "MLS",
+    "USLC": "USL Championship",
+    "USL1": "USL League One",
+    "MLSNP": "MLS NEXT Pro",
+}
+
+# European seasons YYYY-YYYY, US calendar seasons YYYY. None overlap FBref's.
+SEASONS = {"2024-2025", "2025-2026", "2024", "2025", "2026"}
+
+MIN_MINUTES = 90
+
+# FBref table -> the v2 table and the union view built from it. These are the
+# only BigQuery objects this module ever writes.
+V2_TABLES = {"outfield_features": "outfield_features_v2",
+             "goalkeeper_features": "goalkeeper_features_v2"}
+VIEWS = {"outfield_features": "outfield_all", "goalkeeper_features": "goalkeeper_all"}
+
+POSITIONS = {"ATT": "FW", "MID": "MF", "DEF": "DF", "GK": "GK"}
+KEEPER_SOURCES = {"apif", "apif_matches"}  # ASA has no keeper stats
+
+IDENTITY_COLUMNS = frozenset(
+    {"Player", "Nation", "Position", "Squad", "League", "Age", "Born", "Season", "position_group"}
+)
+
+# Column order of schema.sql's feature tables (tests/test_soccer_data_loader.py
+# keeps these in sync with the file).
+OUTFIELD_COLUMNS = [
+    "Player", "Nation", "Position", "Squad", "League", "Age", "Born", "Season",
+    "position_group", "minutes", "nineties_played", "std_goals", "std_assists",
+    "nonpen_goals", "penalty_kicks_made", "yellow_cards", "red_cards", "std_xg", "npxg",
+    "xag", "progressive_carries", "std_progressive_passes", "progressive_passes_received",
+    "goals_per_90", "assists_per_90", "nonpen_goals_per_90", "xg_per_90", "xag_per_90",
+    "npxg_per_90", "npxg_plus_xag_per_90", "shots_total", "shots_on_target",
+    "shots_on_target_pct", "shots_total_per_90", "shots_on_target_per_90", "goals_per_shot",
+    "goals_per_shot_on_target", "avg_shot_distance", "npxg_per_shot", "goals_minus_xg",
+    "nonpen_goals_minus_npxg", "passes_completed_total", "passes_attempted_total",
+    "passes_completion_pct_total", "total_passing_distance", "progressive_passing_distance",
+    "passes_completion_pct_short", "passes_completion_pct_medium",
+    "passes_completion_pct_long", "expected_assisted_goals", "expected_assists",
+    "key_passes", "passes_into_final_third", "passes_into_penalty_area",
+    "crosses_into_penalty_area", "pass_progressive_passes", "tackles_total", "tackles_won",
+    "tackles_def_3rd", "tackles_mid_3rd", "tackles_att_3rd", "dribblers_tackled",
+    "dribblers_tackled_pct", "blocks_total", "interceptions", "tackles_plus_interceptions",
+    "clearances", "errors_leading_to_shot",
+]
+GOALKEEPER_COLUMNS = [
+    "Player", "Nation", "Position", "Squad", "League", "Age", "Born", "Season",
+    "position_group", "minutes", "nineties_played", "goals_against", "goals_against_per_90",
+    "shots_on_target_against", "saves", "save_pct", "wins", "draws", "losses",
+    "clean_sheets", "clean_sheet_pct", "penalty_kicks_faced", "penalty_kicks_allowed",
+    "penalty_kicks_saved", "pk_save_pct",
+]
+
+_MART_NUMBERS = ("minutes", "goals", "assists", "penalties_scored", "shots", "shots_on_target",
+                 "key_passes", "passes", "pass_completion_pct", "tackles", "interceptions",
+                 "blocks", "yellow_cards", "red_cards", "saves", "goals_conceded",
+                 "penalties_saved", "xg", "npxg", "xa")
+
+_SQL_TYPES = {"INTEGER": "INT64", "INT64": "INT64", "FLOAT": "FLOAT64", "FLOAT64": "FLOAT64",
+              "BOOLEAN": "BOOL", "BOOL": "BOOL", "STRING": "STRING"}
+_IDENTIFIER = re.compile(r"^[A-Za-z_]\w*$")
+
+
+# --- warehouse -----------------------------------------------------------------
+
+def warehouse_path() -> Path:
+    """SOCCER_DATA_WAREHOUSE, else $SOCCER_DATA_ROOT/warehouse.duckdb, else ~/soccer-data."""
+    explicit = os.environ.get("SOCCER_DATA_WAREHOUSE")
+    if explicit:
+        return Path(explicit)
+    root = os.environ.get("SOCCER_DATA_ROOT")
+    if root:
+        return Path(root) / "warehouse.duckdb"
+    return Path.home() / "soccer-data" / "warehouse.duckdb"
+
+
+def read_players(path: Path | str) -> pd.DataFrame:
+    """Rows of player_season_stats in LEAGUES and SEASONS with at least 90 minutes."""
+    import duckdb  # dev-only dependency: the app never imports this module
+
+    leagues, seasons = sorted(LEAGUES), sorted(SEASONS)
+    sql = (
+        "SELECT * FROM player_season_stats"
+        f" WHERE league_code IN ({', '.join('?' * len(leagues))})"
+        f" AND season_label IN ({', '.join('?' * len(seasons))})"
+        " AND minutes >= ?"
+        " ORDER BY league_code, season_label, player_name, team"
+    )
+    con = duckdb.connect(str(path), read_only=True)
+    try:
+        return con.execute(sql, [*leagues, *seasons, MIN_MINUTES]).df()
+    finally:
+        con.close()
+
+
+# --- mapping -------------------------------------------------------------------
+
+def _div(num: pd.Series, den: pd.Series) -> pd.Series:
+    """num / den, null when either is null or den is zero."""
+    return num / den.where(den != 0)
+
+
+def _age_at_season_start(born: pd.Series, season_label: pd.Series) -> pd.Series:
+    """Whole years on 1 August (European YYYY-YYYY) or 1 March (US YYYY)."""
+    born = pd.to_datetime(born)
+    year = season_label.str[:4].astype(int)
+    month = np.where(season_label.str.contains("-"), 8, 3)
+    before_birthday = (born.dt.month > month) | ((born.dt.month == month) & (born.dt.day > 1))
+    age = year - born.dt.year - before_birthday.astype(int)
+    return age.where(born.notna()).astype(float)
+
+
+def _source_label(source: pd.Series, xg: pd.Series) -> pd.Series:
+    unknown = set(source) - {"asa", "apif", "apif_matches"}
+    if unknown:
+        raise ValueError(f"unknown source(s) in player_season_stats: {sorted(unknown)}")
+    label = np.select(
+        [source == "asa", (source == "apif") & xg.notna(), source == "apif"],
+        ["American Soccer Analysis", "API-Football + Understat", "API-Football"],
+        default="API-Football match data",
+    )
+    return pd.Series(label, index=source.index, dtype=object)
+
+
+def _identity(p: pd.DataFrame) -> dict[str, pd.Series]:
+    def text(col: str) -> pd.Series:
+        return p[col].astype(object).where(p[col].notna(), None)
+
+    minutes = p["minutes"]
+    return {
+        "Player": text("player_name"),
+        "Nation": text("nationality"),
+        "Position": p["position_group"].map(POSITIONS),
+        "Squad": text("team"),
+        "League": p["league_code"].map(LEAGUES),
+        "Age": _age_at_season_start(p["birth_date"], p["season_label"]),
+        "Born": pd.to_datetime(p["birth_date"]).dt.year.astype(float),
+        "Season": p["season_label"].astype(object),
+        "position_group": p["position_group"].astype(object),
+        "minutes": minutes,
+        "nineties_played": minutes / 90,
+    }
+
+
+def _frame(values: dict[str, pd.Series], columns: list[str], index, source: pd.Series):
+    out = pd.DataFrame(index=index)
+    for col in columns:
+        out[col] = values[col] if col in values else np.nan
+    out["Source"] = source
+    return out.reset_index(drop=True)
+
+
+def _outfield(p: pd.DataFrame) -> pd.DataFrame:
+    n = {col: p[col] for col in _MART_NUMBERS}
+    v = _identity(p)
+    nineties = v["nineties_played"]
+    nonpen = n["goals"] - n["penalties_scored"]
+    v.update({
+        "std_goals": n["goals"],
+        "std_assists": n["assists"],
+        "penalty_kicks_made": n["penalties_scored"],
+        "nonpen_goals": nonpen,
+        "yellow_cards": n["yellow_cards"],
+        "red_cards": n["red_cards"],
+        "std_xg": n["xg"],
+        "npxg": n["npxg"],
+        "xag": n["xa"],
+        "expected_assisted_goals": n["xa"],
+        "shots_total": n["shots"],
+        "shots_on_target": n["shots_on_target"],
+        "shots_on_target_pct": 100 * _div(n["shots_on_target"], n["shots"]),
+        "goals_per_shot": _div(n["goals"], n["shots"]),
+        "goals_per_shot_on_target": _div(n["goals"], n["shots_on_target"]),
+        "npxg_per_shot": _div(n["npxg"], n["shots"]),
+        "goals_minus_xg": n["goals"] - n["xg"],
+        "nonpen_goals_minus_npxg": nonpen - n["npxg"],
+        "key_passes": n["key_passes"],
+        "passes_attempted_total": n["passes"],
+        "passes_completion_pct_total": n["pass_completion_pct"],
+        "tackles_total": n["tackles"],
+        "interceptions": n["interceptions"],
+        "tackles_plus_interceptions": n["tackles"] + n["interceptions"],
+        "blocks_total": n["blocks"],
+    })
+    for total, per90 in PER90_PAIRS.items():
+        if per90 in OUTFIELD_COLUMNS:
+            v[per90] = _div(v[total], nineties)
+    v["npxg_plus_xag_per_90"] = _div(n["npxg"] + n["xa"], nineties)
+    return _frame(v, OUTFIELD_COLUMNS, p.index, _source_label(p["source"], p["xg"]))
+
+
+def _goalkeeper(p: pd.DataFrame) -> pd.DataFrame:
+    v = _identity(p)
+    saves, conceded = p["saves"], p["goals_conceded"]
+    faced = saves + conceded
+    v.update({
+        "goals_against": conceded,
+        "goals_against_per_90": _div(conceded, v["nineties_played"]),
+        "saves": saves,
+        "shots_on_target_against": faced,
+        "save_pct": 100 * _div(saves, faced),
+        "penalty_kicks_saved": p["penalties_saved"],
+    })
+    return _frame(v, GOALKEEPER_COLUMNS, p.index, _source_label(p["source"], p["xg"]))
+
+
+def _make_unique(outfield: pd.DataFrame, goalkeeper: pd.DataFrame, report: dict) -> None:
+    """Rename (Player, Season) repeats across both frames, in place, one level at a
+    time until unique: "Name (Squad)", "Name (Squad, League)", then (different
+    players sharing an abbreviated name at one club) "Name (Squad, League, born
+    YYYY)", then "Name (Squad, League, #N)" numbered by minutes, most first."""
+    cols = ["Player", "Season", "Squad", "League", "Born", "minutes"]
+    both = pd.concat([outfield[cols], goalkeeper[cols]], ignore_index=True)
+    base, season = both["Player"], both["Season"]
+    squad = both["Squad"].fillna("unknown club")
+    stem = base + " (" + squad + ", " + both["League"].fillna("unknown league")
+
+    def clashes(names: pd.Series) -> pd.Series:
+        return pd.DataFrame({"P": names, "S": season}).duplicated(keep=False)
+
+    names = base.copy()
+    clash = clashes(names)
+    names[clash] = base + " (" + squad + ")"
+    to_league = clash & clashes(names)
+    names[to_league] = stem + ")"
+    to_born = to_league & clashes(names) & both["Born"].notna()
+    names[to_born] = stem + ", born " + both["Born"].astype("Int64").astype(str) + ")"
+    numbered = to_league & clashes(names)
+    if numbered.any():
+        group = pd.DataFrame({"P": names, "S": season, "m": both["minutes"]})[numbered]
+        rank = group.groupby(["P", "S"])["m"].rank(method="first", ascending=False)
+        names[numbered] = stem[numbered] + ", #" + rank.astype(int).astype(str) + ")"
+
+    final = pd.DataFrame({"Player": names, "Season": season})
+    repeats = final[final.duplicated(keep=False)]
+    if not repeats.empty:
+        raise ValueError("(Player, Season) still repeats after renaming:\n"
+                         + repeats.head(10).to_string())
+
+    renamed = both[clash].assign(New=names[clash])
+    report["renamed"] = int(clash.sum())
+    report["renamed_to_league"] = int(to_league.sum())
+    report["renamed_to_birth_year"] = int((to_born & ~numbered).sum())
+    report["renamed_numbered"] = int(numbered.sum())
+    report["renamed_examples"] = [f"{r.Player} -> {r.New} ({r.Season})"
+                                  for r in renamed.itertuples()]
+    outfield["Player"] = names.iloc[:len(outfield)].to_numpy()
+    goalkeeper["Player"] = names.iloc[len(outfield):].to_numpy()
+
+
+def build_frames(players: pd.DataFrame,
+                 report: dict | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Map player_season_stats rows onto (outfield, goalkeeper) Hub frames.
+
+    `report`, when given, receives the dropped-row and rename counts."""
+    report = {} if report is None else report
+    p = players.copy()
+    for col in _MART_NUMBERS:
+        p[col] = pd.to_numeric(p[col], errors="coerce").astype(float)
+    p["season_label"] = p["season_label"].astype(str)
+
+    null_position = p["position_group"].isna()
+    unknown = set(p.loc[~null_position, "position_group"]) - set(POSITIONS)
+    if unknown:
+        raise ValueError(f"unknown position_group(s): {sorted(unknown)}")
+    is_gk = p["position_group"] == "GK"
+    keeper_ok = p["source"].isin(KEEPER_SOURCES)
+    report["dropped_null_position"] = int(null_position.sum())
+    report["dropped_asa_keepers"] = int((is_gk & ~keeper_ok).sum())
+
+    outfield = _outfield(p[~null_position & ~is_gk])
+    goalkeeper = _goalkeeper(p[is_gk & keeper_ok])
+    _make_unique(outfield, goalkeeper, report)
+    return outfield, goalkeeper
+
+
+# --- BigQuery --------------------------------------------------------------------
+
+def _sql_type(field_type: str) -> str:
+    return _SQL_TYPES.get(field_type.upper(), field_type.upper())
+
+
+def view_sql(table: str, fbref_columns: list[tuple[str, str]],
+             project: str = GCP_PROJECT, dataset: str = BQ_DATASET) -> str:
+    """CREATE OR REPLACE VIEW <table>'s union view: FBref rows plus v2 rows cast
+    to the FBref column types, each with a Source."""
+    view, v2 = VIEWS[table], V2_TABLES[table]
+    bad = [name for name, _ in fbref_columns if not _IDENTIFIER.match(name)]
+    if bad:
+        raise ValueError(f"column names need quoting: {bad}")
+    old = ",\n    ".join(name for name, _ in fbref_columns)
+    new = ",\n    ".join(f"CAST({name} AS {_sql_type(kind)}) AS {name}"
+                         for name, kind in fbref_columns)
+    return (
+        f"CREATE OR REPLACE VIEW `{project}.{dataset}.{view}` AS\n"
+        f"SELECT\n    {old},\n    'FBref' AS Source\n"
+        f"FROM `{project}.{dataset}.{table}`\n"
+        "UNION ALL\n"
+        f"SELECT\n    {new},\n    Source\n"
+        f"FROM `{project}.{dataset}.{v2}`\n"
+    )
+
+
+def _coerce(frame: pd.DataFrame, columns: list[tuple[str, str]]) -> pd.DataFrame:
+    """Order and type `frame` to a BigQuery schema (nullable ints stay nullable)."""
+    names = [name for name, _ in columns]
+    missing = [n for n in names if n not in frame.columns]
+    extra = [c for c in frame.columns if c not in names]
+    if missing or extra:
+        raise ValueError(f"frame does not match the BigQuery schema: missing {missing}, "
+                         f"extra {extra}")
+    out = pd.DataFrame(index=frame.index)
+    for name, kind in columns:
+        col = frame[name]
+        kind = _sql_type(kind)
+        if kind == "INT64":
+            values = pd.to_numeric(col, errors="coerce").astype(float)
+            fractional = values.notna() & (values != values.round())
+            if fractional.any():
+                raise ValueError(f"{name} is INT64 in BigQuery but has fractional values")
+            out[name] = values.astype("Int64")
+        elif kind == "FLOAT64":
+            out[name] = pd.to_numeric(col, errors="coerce").astype(float)
+        elif kind == "STRING":
+            out[name] = col.astype(object).where(col.notna(), None)
+        else:
+            out[name] = col
+    return out.reset_index(drop=True)
+
+
+def load(outfield: pd.DataFrame, goalkeeper: pd.DataFrame, client,
+         project: str = GCP_PROJECT, dataset: str = BQ_DATASET) -> dict[str, int]:
+    """WRITE_TRUNCATE both v2 tables (FBref column types plus Source STRING), then
+    create both union views. Returns rows written per v2 table."""
+    counts: dict[str, int] = {}
+    live_columns: dict[str, list[tuple[str, str]]] = {}
+    for table, frame in (("outfield_features", outfield), ("goalkeeper_features", goalkeeper)):
+        live = [(f.name, f.field_type)
+                for f in client.get_table(f"{project}.{dataset}.{table}").schema]
+        live_columns[table] = live
+        columns = live + [("Source", "STRING")]
+        config = bigquery.LoadJobConfig(
+            schema=[bigquery.SchemaField(name, kind) for name, kind in columns],
+            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        )
+        data = _coerce(frame, columns)
+        target = f"{project}.{dataset}.{V2_TABLES[table]}"
+        client.load_table_from_dataframe(data, target, job_config=config).result()
+        counts[V2_TABLES[table]] = len(data)
+    for table, live in live_columns.items():
+        client.query(view_sql(table, live, project, dataset)).result()
+    return counts
+
+
+# --- CLI ---------------------------------------------------------------------------
+
+def _counts(frame: pd.DataFrame) -> str:
+    if frame.empty:
+        return "  (no rows)"
+    table = pd.crosstab(frame["League"], frame["Season"], margins=True, margins_name="Total")
+    return table.to_string()
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Load soccer-data's player_season_stats into the Scouting Hub's "
+                    "BigQuery v2 tables and union views.")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="read and map the warehouse, print counts, write nothing")
+    parser.add_argument("--warehouse", type=Path, default=None,
+                        help="warehouse.duckdb path (default: SOCCER_DATA_WAREHOUSE, "
+                             "SOCCER_DATA_ROOT, ~/soccer-data)")
+    args = parser.parse_args(argv)
+
+    path = args.warehouse or warehouse_path()
+    print(f"Warehouse: {path}")
+    players = read_players(path)
+    report: dict = {}
+    outfield, goalkeeper = build_frames(players, report=report)
+
+    print(f"\nRead {len(players)} rows (>= {MIN_MINUTES} minutes).")
+    print(f"Dropped: {report['dropped_null_position']} with no position, "
+          f"{report['dropped_asa_keepers']} ASA goalkeepers.")
+    print(f"Renamed {report['renamed']} colliding rows "
+          f"({report['renamed_to_league']} needed the league, "
+          f"{report['renamed_to_birth_year']} the birth year, "
+          f"{report['renamed_numbered']} a number).")
+    for example in report["renamed_examples"][:5]:
+        print(f"  {example}")
+    deep = [e for e in report["renamed_examples"] if ", born " in e or ", #" in e]
+    for example in deep:
+        print(f"  {example}")
+    print(f"\nOutfield rows: {len(outfield)}")
+    print(_counts(outfield))
+    print(f"\nGoalkeeper rows: {len(goalkeeper)}")
+    print(_counts(goalkeeper))
+    print("\nSource:")
+    print(pd.concat([outfield["Source"], goalkeeper["Source"]]).value_counts().to_string())
+
+    if args.dry_run:
+        print("\nDry run: nothing written to BigQuery.")
+        return 0
+
+    client = bigquery.Client(project=GCP_PROJECT)
+    counts = load(outfield, goalkeeper, client)
+    for table, rows in counts.items():
+        print(f"Loaded {GCP_PROJECT}.{BQ_DATASET}.{table}: {rows} rows")
+    print(f"Views: {', '.join(VIEWS.values())}")
+    return 0
