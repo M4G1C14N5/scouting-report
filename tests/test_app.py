@@ -70,6 +70,39 @@ def test_no_selection_shows_hero_onboarding_and_footer(stub_data):
     assert at.button_group(key="f_season").value == fakes.LATEST  # sidebar defaults to the latest season
 
 
+def _index_with_new_seasons():
+    import pandas as pd
+
+    extra = pd.DataFrame(
+        [("Mohamed Salah", "2025-2026", "Liverpool", "Premier League", "FW", "ATT", 2148,
+          "API-Football + Understat"),
+         ("Mohamed Salah", "2024-2025", "Liverpool", "Premier League", "FW", "ATT", 3371,
+          "API-Football + Understat"),
+         ("US Striker", "2026", "Greenville Triumph", "USL League One", "FW", "ATT", 2400,
+          "American Soccer Analysis")],
+        columns=fakes.INDEX_COLUMNS)
+    return pd.concat([fakes.player_index(), extra], ignore_index=True)
+
+
+def test_sidebar_opens_on_the_newest_european_season(stub_data, monkeypatch):
+    monkeypatch.setattr(data, "load_player_index", lambda _bq: _index_with_new_seasons())
+    at = _app()
+    pills = at.button_group(key="f_season")
+    assert pills.options[:4] == ["All", "2026", "2025-26", "2024-25"]  # newest first
+    assert pills.value == "2025-2026"  # not "2026", which holds only US leagues
+    assert at.button(key="try_example").label == "Try an example: Mohamed Salah"
+
+
+def test_season_switch_lists_every_season_newest_first(stub_data, monkeypatch):
+    monkeypatch.setattr(data, "load_player_index", lambda _bq: _index_with_new_seasons())
+    at = _app()
+    at.button_group(key="f_season").set_value("All").run()
+    at.selectbox(key="player_pick").set_value("Mohamed Salah").run()
+    switch = at.button_group(key="season_switch")
+    assert switch.options == ["2025-26", "2024-25", "2023-24", "2022-23"]
+    assert switch.value == "2025-2026"
+
+
 def test_example_button_opens_a_profile(stub_data):
     at = _app()
     at.button(key="try_example").click().run()

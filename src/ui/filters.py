@@ -9,15 +9,29 @@ Seasons sort chronologically with stats.season_sort_key, so European
 
 from __future__ import annotations
 
+import re
 from typing import Iterable
 
 import pandas as pd
 
 from src.ui.stats import season_sort_key
 
+_EUROPEAN = re.compile(r"^\d{4}-\d{4}$")
+
 
 def seasons_desc(index: pd.DataFrame) -> list[str]:
     return sorted(index["Season"].dropna().unique().tolist(), key=season_sort_key, reverse=True)
+
+
+def default_season(seasons: list[str]) -> str | None:
+    """The sidebar's starting season: the newest European-format season
+    ("2025-2026"), else the newest season, else None. `seasons` is newest
+    first (seasons_desc). A US calendar season ("2026") holds only US
+    leagues, so it is not the default while a European season exists."""
+    european = [s for s in seasons if _EUROPEAN.match(str(s))]
+    if european:
+        return european[0]
+    return seasons[0] if seasons else None
 
 
 def leagues(index: pd.DataFrame) -> list[str]:

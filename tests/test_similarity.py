@@ -83,30 +83,95 @@ def test_get_player_stats_reads_the_views():
     assert "outfield_all`" in bq.calls[0]
 
 
-# --- available-feature filter -------------------------------------------------
+# --- feature and candidate selection -----------------------------------------
 
-def test_usable_features_drop_what_the_player_lacks():
+def test_player_features_keep_what_the_player_has_in_template_order():
     pool = _pool([
         {"Player": "Q", "a": 1.0, "b": np.nan, "c": 3.0},
         {"Player": "R", "a": 2.0, "b": 1.0, "c": 1.0},
     ])
-    assert similarity.usable_features(pool, pool.iloc[0], ["a", "b", "c"]) == ["a", "c"]
+    assert similarity.player_features(pool, pool.iloc[0], ["c", "b", "a", "missing"]) == ["c", "a"]
 
 
-def test_usable_features_need_half_the_pool():
-    pool = _pool([
-        {"Player": "Q", "a": 1.0, "b": 1.0, "c": 1.0},
-        {"Player": "R", "a": 2.0, "b": 2.0, "c": np.nan},
-        {"Player": "S", "a": 3.0, "b": np.nan, "c": np.nan},
-        {"Player": "T", "a": 4.0, "b": np.nan, "c": np.nan},
-    ])
-    # a: 4/4, b: 2/4 (exactly half, kept), c: 1/4 (dropped)
-    assert similarity.usable_features(pool, pool.iloc[0], ["a", "b", "c"]) == ["a", "b"]
+XG = ["xg_per_90", "npxg_per_90", "xag_per_90", "npxg_plus_xag_per_90"]
+NO_XG = ["goals_per_90", "goals_per_shot", "assists_per_90", "key_passes", "shots_total_per_90",
+         "passes_completion_pct_total"]
 
 
-def test_usable_features_skip_columns_the_table_does_not_have():
-    pool = _pool([{"Player": "Q", "a": 1.0}, {"Player": "R", "a": 2.0}])
-    assert similarity.usable_features(pool, pool.iloc[0], ["a", "missing"]) == ["a"]
+def _season_pool(big_five: int, championship: int) -> pd.DataFrame:
+    """A 2025-26 ATT pool as the views return it: every template column, the
+    FBref-only ones null for all, xG present for the Big 5 rows only."""
+    rng = np.random.default_rng(3)
+    template = similarity.FEATURE_TEMPLATES["ATT"]
+    rows = []
+    for league, n in (("Premier League", big_five), ("Championship", championship)):
+        for i in range(n):
+            rec = {c: np.nan for c in template}
+            rec.update({c: float(rng.uniform(0.1, 3.0)) for c in NO_XG})
+            if league == "Premier League":
+                rec.update({c: float(rng.uniform(0.1, 1.0)) for c in XG})
+            rec.update(Player=f"{league} {i}", League=league, Squad=f"Club {i}", position_group="ATT")
+            rows.append(rec)
+    return _pool(rows, season="2025-2026")
+
+
+def test_big_five_query_keeps_xg_and_is_compared_only_with_big_five_rows():
+    pool = _season_pool(big_five=30, championship=30)
+    query = pool[pool["Player"] == "Premier League 0"].index[0]
+    features, candidates = similarity.select_features(
+        pool, pool["Player"] == "Premier League 0", similarity.FEATURE_TEMPLATES["ATT"])
+    assert set(XG) <= set(features)
+    assert set(pool.loc[candidates, "League"]) == {"Premier League"}
+    assert not candidates[query]
+    out = similarity.rank_similar(pool, "Premier League 0", "2025-2026",
+                                  similarity.FEATURE_TEMPLATES["ATT"], top_n=40)
+    assert len(out) == 29 and set(out["League"]) == {"Premier League"}
+
+
+def test_championship_query_uses_the_non_xg_stats_and_matches_both_leagues():
+    pool = _season_pool(big_five=30, championship=30)
+    features, candidates = similarity.select_features(
+        pool, pool["Player"] == "Championship 0", similarity.FEATURE_TEMPLATES["ATT"])
+    assert not set(XG) & set(features)
+    assert set(features) == set(NO_XG)
+    out = similarity.rank_similar(pool, "Championship 0", "2025-2026",
+                                  similarity.FEATURE_TEMPLATES["ATT"], top_n=60)
+    assert len(out) == 59 and set(out["League"]) == {"Premier League", "Championship"}
+
+
+def test_too_few_candidates_drop_the_lowest_coverage_feature_until_twenty():
+    # Only 10 Big 5 rows have xG: a Big 5 query would have 9 candidates, so the
+    # xG stats (the lowest coverage) go one by one and the Championship joins.
+    pool = _season_pool(big_five=10, championship=30)
+    features, candidates = similarity.select_features(
+        pool, pool["Player"] == "Premier League 0", similarity.FEATURE_TEMPLATES["ATT"])
+    assert set(features) == set(NO_XG)
+    assert int(candidates.sum()) == 39
+
+
+def test_dropping_stops_as_soon_as_there_are_twenty_candidates():
+    pool = _pool([{"Player": f"P{i}", "a": 1.0 + i, "b": 2.0 * i, "c": 0.5 * i,
+                   "d": (1.0 if i < 22 else np.nan), "e": (1.0 + i if i < 15 else np.nan)}
+                  for i in range(30)])
+    features, candidates = similarity.select_features(pool, pool["Player"] == "P0", ["a", "b", "c", "d", "e"])
+    assert features == ["a", "b", "c", "d"]  # e (15/30) dropped; d (22/30) leaves 21 candidates
+    assert int(candidates.sum()) == 21
+
+
+def test_dropping_below_three_features_raises():
+    pool = _pool([{"Player": f"P{i}", "a": 1.0 + i, "b": (1.0 if i < 12 else np.nan),
+                   "c": (1.0 if i < 8 else np.nan)} for i in range(30)])
+    with pytest.raises(similarity.NotEnoughStatsError):
+        similarity.select_features(pool, pool["Player"] == "P0", ["a", "b", "c"])
+
+
+def test_small_pool_with_every_stat_keeps_every_feature():
+    # Under 20 others, but dropping a stat could not add a candidate: keep them all.
+    pool = fakes.position_pool("ATT", fakes.LATEST)
+    features, candidates = similarity.select_features(
+        pool, pool["Player"] == "Mohamed Salah", similarity.FEATURE_TEMPLATES["ATT"])
+    assert features == similarity.FEATURE_TEMPLATES["ATT"]
+    assert int(candidates.sum()) == len(pool) - 1
 
 
 def test_missing_stats_change_the_ranking_to_the_shared_ones():
@@ -161,6 +226,15 @@ def _old_algorithm(pool: pd.DataFrame, player: str, season: str, cols: list[str]
             .sort_values("similarity_score", ascending=False)
             .head(top_n)[["Player", "Squad", "League", "Season", "position_group", "minutes", "similarity_score"]]
             .reset_index(drop=True))
+
+
+def test_full_large_pool_ranks_exactly_as_before():
+    rng = np.random.default_rng(5)
+    cols = similarity.FEATURE_TEMPLATES["MID"]
+    pool = _pool([{"Player": f"M{i}", "position_group": "MID", **{c: float(rng.normal()) for c in cols}}
+                  for i in range(60)], season="2021-2022")
+    got = similarity.rank_similar(pool, "M7", "2021-2022", cols, top_n=20)
+    pd.testing.assert_frame_equal(got, _old_algorithm(pool, "M7", "2021-2022", cols, 20))
 
 
 @pytest.mark.parametrize("player, group", [("Mohamed Salah", "ATT"), ("Alisson", "GK")])

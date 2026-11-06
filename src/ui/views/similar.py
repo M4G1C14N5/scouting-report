@@ -6,14 +6,15 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from src.similarity import MIN_FEATURES, MIN_MINUTES, NotEnoughStatsError
+from src.similarity import MIN_CANDIDATES, MIN_FEATURES, MIN_MINUTES, NotEnoughStatsError
 from src.ui import build, data, metrics, state, stats, theme, viz
 
 METHOD = ("Method: cosine similarity on z-scored stats within the position pool "
-          f"(same position and season, {MIN_MINUTES}+ minutes), using only the stats "
-          "this player has and at least half the pool has.")
+          f"(same position and season, {MIN_MINUTES}+ minutes), on the stats this player has, "
+          "compared only with players who have all of those stats.")
 NOT_ENOUGH_BODY = (f"Similarity needs at least {MIN_FEATURES} of the position's stats that this player "
-                   "has and at least half the pool has. The data for this player-season has fewer.")
+                   f"has and at least {MIN_CANDIDATES} other players also have. "
+                   "The data for this player-season has fewer.")
 
 COLUMN_CONFIG = {
     "Player": st.column_config.TextColumn("Player", width="medium"),

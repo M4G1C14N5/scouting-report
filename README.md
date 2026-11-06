@@ -89,7 +89,7 @@ Defined in `src/similarity.py`. Uses cosine similarity on z-scored stats.
 4. Cosine similarity is computed between the query player and every other player in the same pool
 5. Results are returned ranked by similarity score, filtered to players with ≥ 450 minutes
 
-Only template stats that the query player has and at least half of the pool has are used, so a US striker is compared on the stats US data carries. With fewer than 3 such stats the Similar tab says "Not enough comparable stats for this player in this season" instead of ranking. FBref rows, which have every template stat, rank exactly as before.
+Only the template stats the query player has are used, and only players who have every one of those stats are compared: a Premier League striker with xG is matched with other players who have xG, while a Championship striker without it is matched on the stats both have. If fewer than 20 players qualify, the stat the pool has least often is dropped and the search repeats. With fewer than 3 stats left the Similar tab says "Not enough comparable stats for this player in this season" instead of ranking. FBref rows, which have every template stat, rank exactly as before.
 
 **Known limitation:** With FBref data, goals and assists naturally carry high signal weight. More granular tracking data (pressing, spatial, ball retention) would improve result quality.
 

@@ -247,7 +247,7 @@ def test_similar_not_enough_stats_shows_the_message_not_an_error(monkeypatch):
 
 def test_similar_method_line_says_only_shared_stats_are_used(stub_similar):
     at = _run(similar_script, "Mohamed Salah", fakes.LATEST)
-    assert "stats this player has and at least half the pool has" in _captions(at)
+    assert "compared only with players who have all of those stats" in _captions(at)
 
 
 def test_similar_selection_is_cleared_when_the_player_changes(stub_similar):

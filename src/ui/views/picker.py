@@ -31,7 +31,7 @@ def _season_label(value: str) -> str:
 
 def sidebar(index: pd.DataFrame) -> pd.DataFrame:
     seasons = filters.seasons_desc(index)
-    _init(state.SEASON, seasons[0] if seasons else state.ALL_SEASONS)
+    _init(state.SEASON, filters.default_season(seasons) or state.ALL_SEASONS)
     _init(state.LEAGUE, state.ALL_LEAGUES)
     _init(state.CLUB, state.ALL_CLUBS)
     with st.sidebar:
@@ -87,7 +87,8 @@ def onboarding(filtered: pd.DataFrame) -> None:
 
 def season_switch(filtered: pd.DataFrame, player: str) -> str | None:
     """The season to show. Defaults to the player's latest season in view and
-    stays put across reruns, until a different player is picked."""
+    stays put across reruns, until a different player is picked. The
+    switcher lists every season in view, newest first."""
     seasons = filters.player_seasons(filtered, player)
     if not seasons:
         return None
@@ -98,5 +99,5 @@ def season_switch(filtered: pd.DataFrame, player: str) -> str | None:
     if len(seasons) == 1:
         return seasons[0]
     st.markdown(theme.section_label_html("Season"), unsafe_allow_html=True)
-    return st.segmented_control("Season", seasons, key=state.SWITCH, required=True,
+    return st.segmented_control("Season", seasons[::-1], key=state.SWITCH, required=True,
                                 format_func=stats.short_season, label_visibility="collapsed")

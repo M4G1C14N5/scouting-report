@@ -89,3 +89,13 @@ def test_search_options_pick_the_newest_season_across_both_kinds():
     opts = filters.search_options(MIXED).set_index("Player")
     assert opts.loc["Mover", "Season"] == "2025-2026"  # not "2025" (more minutes, older)
     assert opts.loc["Other", "Season"] == "2026"
+
+
+def test_default_season_is_the_newest_european_season():
+    assert filters.default_season(["2026", "2025-2026", "2025", "2024-2025"]) == "2025-2026"
+    assert filters.default_season(filters.seasons_desc(MIXED)) == "2025-2026"
+
+
+def test_default_season_falls_back_to_the_newest_season():
+    assert filters.default_season(["2026", "2025", "2024"]) == "2026"
+    assert filters.default_season([]) is None

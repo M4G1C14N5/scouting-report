@@ -9,13 +9,17 @@ How it works
    goalkeeper_all views by default: FBref plus the newer sources).
 2. Filter to players with >= 450 minutes (serious sample size).
 3. For the queried player's position group, select a position-specific
-   set of features (feature template). Keep only the features the queried
-   player has and at least half the pool has: newer sources leave some
-   stats empty (no progressive passing after 2023-24, no tackles in the US
-   leagues). Fewer than 3 left raises NotEnoughStatsError.
-4. Z-score the kept feature columns so no single stat dominates by scale.
-5. Compute cosine similarity between the queried player and every other
-   player in the same position pool.
+   set of features (feature template). Newer sources leave some stats
+   empty (no progressive passing after 2023-24, no tackles in the US
+   leagues, no xG outside the Big 5 for most leagues), so keep only the
+   features the queried player has and compare only with candidates who
+   have every one of them. While there are fewer than 20 candidates, drop
+   the feature the pool has least often and look again. Fewer than 3
+   features left raises NotEnoughStatsError. See select_features.
+4. Z-score the kept feature columns over the candidates and the queried
+   player, so no single stat dominates by scale.
+5. Compute cosine similarity between the queried player and every
+   candidate.
 6. Return the top N most similar players with their similarity score.
 
 Position feature templates
@@ -40,7 +44,7 @@ GOALKEEPER_TABLE = os.environ.get("BQ_GOALKEEPER_TABLE", "goalkeeper_all")
 
 MIN_MINUTES = 450
 MIN_FEATURES = 3          # fewer usable template stats than this: no similarity
-MIN_POOL_COVERAGE = 0.5   # a stat is usable when at least this share of the pool has it
+MIN_CANDIDATES = 20       # drop the rarest stat while fewer players than this have them all
 NOT_ENOUGH_STATS = "Not enough comparable stats for this player in this season"
 
 
@@ -52,7 +56,7 @@ class NotEnoughStatsError(ValueError):
 
 # Feature templates: one list of columns per position group.
 # All columns must exist in outfield_features / goalkeeper_features.
-# Rows from the newer sources may leave some of them null; see usable_features.
+# Rows from the newer sources may leave some of them null; see select_features.
 FEATURE_TEMPLATES = {
     "ATT": [
         # Output metrics (reduced weight by including fewer)
@@ -160,19 +164,39 @@ def _cosine_similarity(query_vec: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     return (matrix / norms) @ query_norm
 
 
-def usable_features(pool_df: pd.DataFrame, query_row, template: list[str]) -> list[str]:
-    """Template features the query player has (non-null) and at least
-    MIN_POOL_COVERAGE of the pool has, in template order."""
-    usable = []
-    for col in template:
-        if col not in pool_df.columns:
-            continue
-        if pd.isna(query_row.get(col)):
-            continue
-        if pool_df[col].notna().mean() < MIN_POOL_COVERAGE:
-            continue
-        usable.append(col)
-    return usable
+def player_features(pool_df: pd.DataFrame, query_row, template: list[str]) -> list[str]:
+    """Template features the query player has (non-null), in template order."""
+    return [c for c in template if c in pool_df.columns and not pd.isna(query_row.get(c))]
+
+
+def select_features(
+    pool_df: pd.DataFrame,
+    query_mask: pd.Series,
+    template: list[str],
+) -> tuple[list[str], pd.Series]:
+    """(features, candidates) for the query row marked by `query_mask`.
+
+    features: the template features the query player has. candidates: the
+    other pool rows that have every one of those features. While there are
+    fewer than MIN_CANDIDATES candidates, the feature with the lowest
+    coverage in the pool is dropped (the first in template order on a tie)
+    and the candidates are recomputed. Dropping stops early when every other
+    row is already a candidate, since no drop could add one: a small pool
+    with every stat present keeps the full template.
+
+    Raises NotEnoughStatsError when fewer than MIN_FEATURES features remain."""
+    query_row = pool_df[query_mask].iloc[0]
+    features = player_features(pool_df, query_row, template)
+    others = ~query_mask
+    while True:
+        if len(features) < MIN_FEATURES:
+            raise NotEnoughStatsError()
+        candidates = pool_df[features].notna().all(axis=1) & others
+        n = int(candidates.sum())
+        if n >= MIN_CANDIDATES or n == int(others.sum()):
+            return features, candidates
+        rarest = pool_df[features].notna().mean().idxmin()
+        features = [c for c in features if c != rarest]
 
 
 def rank_similar(
@@ -182,28 +206,28 @@ def rank_similar(
     template: list[str],
     top_n: int,
 ) -> pd.DataFrame:
-    """Steps 3-6 on a fetched pool: pick the usable features, z-score, cosine,
-    drop the query player, top N. Raises NotEnoughStatsError when fewer than
-    MIN_FEATURES template stats are usable. With every stat present this is
-    exactly the original full-template ranking."""
-    pool_reset = pool_df.reset_index(drop=True).copy()
+    """Steps 3-6 on a fetched pool: select the features and candidates,
+    z-score over the candidates and the query player, cosine, top N. Raises
+    NotEnoughStatsError (see select_features). With every stat present for
+    every row this is exactly the original full-template ranking."""
+    pool_reset = pool_df.reset_index(drop=True)
     query_mask = (pool_reset["Player"] == player) & (pool_reset["Season"] == season)
-    positional_idx = pool_reset.index[query_mask][0]
+    feature_cols, candidates = select_features(pool_reset, query_mask, template)
 
-    feature_cols = usable_features(pool_reset, pool_reset.iloc[positional_idx], template)
-    if len(feature_cols) < MIN_FEATURES:
-        raise NotEnoughStatsError()
+    scored = pool_reset[candidates | query_mask].reset_index(drop=True).copy()
+    scored_query = (scored["Player"] == player) & (scored["Season"] == season)
+    positional_idx = scored.index[scored_query][0]
 
     # ── 4. Z-score the feature matrix ─────────────────────────────────────────
-    X         = _zscore_matrix(pool_reset, feature_cols)
+    X         = _zscore_matrix(scored, feature_cols)
     query_vec = X[positional_idx]
 
-    # ── 5. Cosine similarity against full pool ────────────────────────────────
-    pool_reset["similarity_score"] = _cosine_similarity(query_vec, X)
+    # ── 5. Cosine similarity against the candidates ───────────────────────────
+    scored["similarity_score"] = _cosine_similarity(query_vec, X)
 
     # ── 6. Exclude the query player themselves, sort, return top N ────────────
     return (
-        pool_reset[~query_mask]
+        scored[~scored_query]
         .sort_values("similarity_score", ascending=False)
         .head(top_n)[["Player", "Squad", "League", "Season", "position_group", "minutes", "similarity_score"]]
         .reset_index(drop=True)
@@ -240,7 +264,7 @@ def find_similar_players(
     ------
     NotEnoughStatsError
         When fewer than MIN_FEATURES template stats are usable (see
-        usable_features). It is a ValueError.
+        select_features). It is a ValueError.
     """
     if bq_client is None:
         bq_client = bigquery.Client(project=GCP_PROJECT)
