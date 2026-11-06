@@ -540,6 +540,67 @@ def test_plausibility_thresholds_are_constants():
     assert loader.MIN_MINUTES_FOR_PLAUSIBILITY == 180
 
 
+# --- nationality codes -----------------------------------------------------------
+
+def test_nation_names_become_fbref_codes():
+    common = dict(source="apif", league_code="ENG1", season_label="2025-2026",
+                  position_group="MID", minutes=1000)
+    rows = [
+        _row(player_name="A. One", team="Arsenal", nationality="England", **common),
+        _row(player_name="B. Two", team="Brentford", nationality="Côte d'Ivoire", **common),
+        _row(player_name="C. Three", team="Chelsea", nationality="Korea Republic", **common),
+        _row(player_name="D. Four", team="Derby", nationality="Republic of Ireland", **common),
+        _row(player_name="E. Five", team="Everton", nationality="Türkiye", **common),
+        _row(player_name="F. Six", team="Fulham", nationality="Bonaire", **common),
+        _row(player_name="G. Seven", team="Leeds", nationality="Atlantis", **common),
+        _row(player_name="H. Eight", team="Wolves", nationality=None, **common),
+        _row(source="asa", league_code="MLS", season_label="2025", player_name="I. Nine",
+             team="Austin FC", position_group="MID", minutes=1000, nationality="USA"),
+    ]
+    report: dict = {}
+    outfield, _ = loader.build_frames(players(rows), report=report)
+    nation = dict(zip(outfield["Player"], outfield["Nation"]))
+    assert nation["A. One"] == "ENG"
+    assert nation["B. Two"] == "CIV"
+    assert nation["C. Three"] == "KOR"
+    assert nation["D. Four"] == "IRL"
+    assert nation["E. Five"] == "TUR"
+    assert nation["I. Nine"] == "USA"
+    # explicit fallback and unknown names keep the name; null stays null
+    assert nation["F. Six"] == "Bonaire"
+    assert nation["G. Seven"] == "Atlantis"
+    assert _null(nation["H. Eight"])
+    assert report["nations_fallback"] == {"Bonaire": 1}
+    assert report["nations_unmapped"] == {"Atlantis": 1}
+
+
+def test_nation_codes_are_three_capital_letters_and_known_fbref_ones_match():
+    assert all(re.fullmatch(r"[A-Z]{3}", code) for code in loader.NATION_CODES.values())
+    assert not set(loader.NATION_CODES) & set(loader.NATION_FALLBACK)
+    # FBref spellings that differ from ISO
+    for name, code in {"England": "ENG", "Scotland": "SCO", "Wales": "WAL",
+                       "Northern Ireland": "NIR", "Germany": "GER", "Netherlands": "NED",
+                       "Switzerland": "SUI", "Portugal": "POR", "Saudi Arabia": "KSA",
+                       "South Africa": "RSA", "Kosovo": "KVX", "Costa Rica": "CRC",
+                       "Congo DR": "COD", "Cape Verde": "CPV", "Curaçao": "CUW"}.items():
+        assert loader.NATION_CODES[name] == code, name
+
+
+def test_every_warehouse_nationality_is_mapped_or_an_explicit_fallback():
+    path = loader.warehouse_path()
+    if not path.exists():
+        pytest.skip(f"no soccer-data warehouse at {path}")
+    con = duckdb.connect(str(path), read_only=True)
+    try:
+        names = {r[0] for r in con.execute(
+            "SELECT DISTINCT nationality FROM player_season_stats "
+            "WHERE nationality IS NOT NULL").fetchall()}
+    finally:
+        con.close()
+    missing = sorted(names - set(loader.NATION_CODES) - set(loader.NATION_FALLBACK))
+    assert missing == []
+
+
 # --- view SQL ----------------------------------------------------------------
 
 FBREF_COLUMNS = [("Player", "STRING"), ("Age", "INTEGER"), ("minutes", "INT64"),

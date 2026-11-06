@@ -80,6 +80,63 @@ VIEWS = {"outfield_features": "outfield_all", "goalkeeper_features": "goalkeeper
 POSITIONS = {"ATT": "FW", "MID": "MF", "DEF": "DF", "GK": "GK"}
 KEEPER_SOURCES = {"apif", "apif_matches"}  # ASA has no keeper stats
 
+# soccer-data nationality (country name, API-Football / ASA spelling) -> the
+# FIFA-style trigram FBref shows in `Nation` (ENG, SCO, WAL, NIR, KSA, RSA, KVX...).
+# Covers every nationality in player_season_stats (a test checks the warehouse).
+NATION_CODES: dict[str, str] = {
+    "Afghanistan": "AFG", "Albania": "ALB", "Algeria": "ALG", "Andorra": "AND",
+    "Angola": "ANG", "Antigua & Barbuda": "ATG", "Antigua and Barbuda": "ATG",
+    "Argentina": "ARG", "Armenia": "ARM", "Aruba": "ARU", "Australia": "AUS",
+    "Austria": "AUT", "Azerbaijan": "AZE", "Barbados": "BRB", "Belarus": "BLR",
+    "Belgium": "BEL", "Belize": "BLZ", "Benin": "BEN", "Bermuda": "BER", "Bolivia": "BOL",
+    "Bosnia and Herzegovina": "BIH", "Brazil": "BRA", "British Virgin Islands": "VGB",
+    "Bulgaria": "BUL", "Burkina Faso": "BFA", "Burundi": "BDI", "Cameroon": "CMR",
+    "Canada": "CAN", "Cape Verde": "CPV", "Cape Verde Islands": "CPV",
+    "Republic of Cape Verde": "CPV", "Cayman Islands": "CAY",
+    "Central African Republic": "CTA", "Chad": "CHA", "Chile": "CHI", "China": "CHN",
+    "China PR": "CHN", "Chinese Taipei": "TPE", "Colombia": "COL", "Comoros": "COM",
+    "Congo": "CGO", "Congo DR": "COD", "DR Congo": "COD", "Costa Rica": "CRC",
+    "Croatia": "CRO", "Cuba": "CUB", "Curaçao": "CUW", "Cyprus": "CYP",
+    "Czech Republic": "CZE", "Czechia": "CZE", "Côte d'Ivoire": "CIV", "Ivory Coast": "CIV",
+    "Denmark": "DEN", "Dominica": "DMA", "Dominican Republic": "DOM", "Ecuador": "ECU",
+    "Egypt": "EGY", "El Salvador": "SLV", "England": "ENG", "Equatorial Guinea": "EQG",
+    "Eritrea": "ERI", "Estonia": "EST", "Ethiopia": "ETH", "Faroe Islands": "FRO",
+    "Finland": "FIN", "France": "FRA", "French Guiana": "GUF", "Gabon": "GAB",
+    "Gambia": "GAM", "Georgia": "GEO", "Germany": "GER", "Ghana": "GHA", "Greece": "GRE",
+    "Grenada": "GRN", "Guadeloupe": "GLP", "Guam": "GUM", "Guatemala": "GUA",
+    "Guinea": "GUI", "Guinea-Bissau": "GNB", "Guyana": "GUY", "Haiti": "HAI",
+    "Honduras": "HON", "Hong Kong": "HKG", "Hungary": "HUN", "Iceland": "ISL",
+    "India": "IND", "Indonesia": "IDN", "Iran": "IRN", "Iraq": "IRQ", "Ireland": "IRL",
+    "Republic of Ireland": "IRL", "Israel": "ISR", "Italy": "ITA", "Jamaica": "JAM",
+    "Japan": "JPN", "Jordan": "JOR", "Kazakhstan": "KAZ", "Kenya": "KEN",
+    "Korea DPR": "PRK", "Korea Republic": "KOR", "South Korea": "KOR", "Kosovo": "KVX",
+    "Laos": "LAO", "Latvia": "LVA", "Lesotho": "LES", "Liberia": "LBR", "Libya": "LBY",
+    "Liechtenstein": "LIE", "Lithuania": "LTU", "Luxembourg": "LUX", "Macedonia": "MKD",
+    "North Macedonia": "MKD", "Madagascar": "MAD", "Malawi": "MWI", "Malaysia": "MAS",
+    "Mali": "MLI", "Malta": "MLT", "Martinique": "MTQ", "Mauritania": "MTN",
+    "Mauritius": "MRI", "Mexico": "MEX", "Moldova": "MDA", "Montenegro": "MNE",
+    "Montserrat": "MSR", "Morocco": "MAR", "Mozambique": "MOZ", "Namibia": "NAM",
+    "Netherlands": "NED", "New Caledonia": "NCL", "New Zealand": "NZL", "Nicaragua": "NCA",
+    "Niger": "NIG", "Nigeria": "NGA", "Northern Ireland": "NIR", "Norway": "NOR",
+    "Pakistan": "PAK", "Palestine": "PLE", "Panama": "PAN", "Paraguay": "PAR",
+    "Peru": "PER", "Philippines": "PHI", "Poland": "POL", "Portugal": "POR",
+    "Puerto Rico": "PUR", "Qatar": "QAT", "Romania": "ROU", "Russia": "RUS",
+    "Rwanda": "RWA", "Saudi Arabia": "KSA", "Scotland": "SCO", "Senegal": "SEN",
+    "Serbia": "SRB", "Seychelles": "SEY", "Sierra Leone": "SLE", "Slovakia": "SVK",
+    "Slovenia": "SVN", "Somalia": "SOM", "South Africa": "RSA", "South Sudan": "SSD",
+    "Spain": "ESP", "St. Kitts and Nevis": "SKN", "St. Lucia": "LCA",
+    "St. Vincent and the Grenadines": "VIN", "Suriname": "SUR", "Sweden": "SWE",
+    "Switzerland": "SUI", "Syria": "SYR", "São Tomé e Príncipe": "STP", "Tanzania": "TAN",
+    "Thailand": "THA", "Timor-Leste": "TLS", "Togo": "TOG", "Trinidad & Tobago": "TRI",
+    "Trinidad and Tobago": "TRI", "Tunisia": "TUN", "Turkey": "TUR", "Türkiye": "TUR",
+    "Turks and Caicos Islands": "TCA", "US Virgin Islands": "VIR", "USA": "USA",
+    "Uganda": "UGA", "Ukraine": "UKR", "Uruguay": "URU", "Uzbekistan": "UZB",
+    "Venezuela": "VEN", "Vietnam": "VIE", "Wales": "WAL", "Yemen": "YEM", "Zambia": "ZAM",
+    "Zimbabwe": "ZIM",
+}
+# Names kept as they are: no FIFA trigram, and none in the FBref data to copy.
+NATION_FALLBACK = frozenset({"Bonaire"})
+
 IDENTITY_COLUMNS = frozenset(
     {"Player", "Nation", "Position", "Squad", "League", "Age", "Born", "Season", "position_group"}
 )
@@ -354,6 +411,18 @@ def _clean_api_football_names(p: pd.DataFrame, report: dict) -> None:
             p[col] = p[col].map(_clean)
 
 
+def _apply_nation_codes(p: pd.DataFrame, report: dict) -> None:
+    """Country names -> FBref trigrams in place. Fallback and unknown names keep the
+    name and are counted in the report; nulls stay null."""
+    names = p["nationality"]
+    present = names.notna()
+    fallback = present & names.isin(NATION_FALLBACK)
+    unmapped = present & ~names.isin(NATION_CODES) & ~fallback
+    report["nations_fallback"] = names[fallback].value_counts().to_dict()
+    report["nations_unmapped"] = names[unmapped].value_counts().to_dict()
+    p["nationality"] = names.map(NATION_CODES).where(names.isin(NATION_CODES), names)
+
+
 def _apply_display_names(p: pd.DataFrame, report: dict) -> None:
     def text(col: str) -> list[str | None]:
         # older callers lack the link columns; nulls may arrive as NaN
@@ -449,6 +518,7 @@ def build_frames(players: pd.DataFrame,
         p[col] = pd.to_numeric(p[col], errors="coerce").astype(float)
     p["season_label"] = p["season_label"].astype(str)
     _clean_api_football_names(p, report)
+    _apply_nation_codes(p, report)
 
     null_position = p["position_group"].isna()
     unknown = set(p.loc[~null_position, "position_group"]) - set(POSITIONS)
@@ -599,6 +669,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  implausible: {league} {season}: {n}")
     for example in report["implausible_examples"]:
         print(f"  {example}")
+    print(f"Nations kept as names: fallback {report['nations_fallback']}, "
+          f"unmapped {report['nations_unmapped']}.")
     print(f"Display names: {report['names_cleaned']} API-Football names cleaned "
           f"(entities, spaces); {report['names_initial']} expanded from the profile first "
           f"name, {report['names_understat']} taken from Understat.")
