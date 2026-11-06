@@ -64,7 +64,7 @@ MIN_MINUTES = 90
 # at least MIN_MINUTES_FOR_PLAUSIBILITY minutes and above any limit for its
 # position is dropped; shorter stints are left alone, since a substitute keeper
 # can really concede 6 in 134 minutes.
-MIN_MINUTES_FOR_PLAUSIBILITY = 270
+MIN_MINUTES_FOR_PLAUSIBILITY = 180
 MAX_GK_GOALS_AGAINST_PER_90 = 4
 MAX_GK_SAVES_PER_90 = 9
 MAX_SHOTS_PER_90 = 10

@@ -499,7 +499,7 @@ def test_implausible_per_90_rows_are_dropped():
     europe = dict(source="apif", league_code="ESP1", season_label="2024-2025")
     rows = [
         # full-season keeper totals on partial minutes
-        _row(player_name="G. Full", team="Valencia", position_group="GK", minutes=270,
+        _row(player_name="G. Full", team="Valencia", position_group="GK", minutes=180,
              goals_conceded=48, saves=93, **europe),
         _row(player_name="S. Saves", team="Getafe", position_group="GK", minutes=360,
              goals_conceded=2, saves=37, **europe),          # 9.25 saves per 90
@@ -513,10 +513,10 @@ def test_implausible_per_90_rows_are_dropped():
              key_passes=41, **europe),                       # 8.2 key passes per 90
         _row(player_name="O. Edge", team="Sevilla", position_group="MID", minutes=270,
              shots=30, goals=9, key_passes=24, **europe),    # exactly on every limit: kept
-        # under 270 minutes the checks do not apply: short real stints stay
+        # under 180 minutes the checks do not apply: short real stints stay
         _row(player_name="D. Short", team="Leicester", position_group="GK", minutes=134,
              goals_conceded=6, saves=4, **europe),           # 4.03 GA per 90
-        _row(player_name="E. Burst", team="Vejle", position_group="ATT", minutes=269,
+        _row(player_name="E. Burst", team="Vejle", position_group="ATT", minutes=179,
              shots=40, goals=12, key_passes=30, **europe),
         _row(source="asa", league_code="MLS", season_label="2025", player_name="A. Nulls",
              team="Austin FC", position_group="DEF", minutes=900, goals=0, shots=2),
@@ -537,7 +537,7 @@ def test_plausibility_thresholds_are_constants():
     assert loader.MAX_SHOTS_PER_90 == 10
     assert loader.MAX_GOALS_PER_90 == 3
     assert loader.MAX_KEY_PASSES_PER_90 == 8
-    assert loader.MIN_MINUTES_FOR_PLAUSIBILITY == 270
+    assert loader.MIN_MINUTES_FOR_PLAUSIBILITY == 180
 
 
 # --- view SQL ----------------------------------------------------------------
