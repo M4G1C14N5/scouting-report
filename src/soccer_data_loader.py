@@ -18,6 +18,7 @@ import argparse
 import html
 import os
 import re
+import sys
 import unicodedata
 from pathlib import Path
 
@@ -59,9 +60,11 @@ SEASONS = {"2024-2025", "2025-2026", "2024", "2025", "2026"}
 MIN_MINUTES = 90
 
 # Plausibility limits per 90 minutes. soccer-data's API-Football catalog has rows
-# whose counting stats are full-season but whose minutes are partial (G.
-# Mamardashvili, Valencia 2024-25: 180 minutes, 48 goals against, 93 saves).
-# A row above any limit for its position is dropped.
+# whose counting stats are full-season but whose minutes are partial. A row with
+# at least MIN_MINUTES_FOR_PLAUSIBILITY minutes and above any limit for its
+# position is dropped; shorter stints are left alone, since a substitute keeper
+# can really concede 6 in 134 minutes.
+MIN_MINUTES_FOR_PLAUSIBILITY = 270
 MAX_GK_GOALS_AGAINST_PER_90 = 4
 MAX_GK_SAVES_PER_90 = 9
 MAX_SHOTS_PER_90 = 10
@@ -297,37 +300,67 @@ def _fold(text: str) -> str:
 
 
 def _clean(value) -> str | None:
-    if value is None or (isinstance(value, float) and np.isnan(value)) or pd.isna(value):
+    """HTML entities decoded ("O&apos;Shea" -> "O'Shea"), whitespace runs (including
+    non-breaking spaces) collapsed and trimmed; None when empty or null."""
+    if value is None or pd.isna(value):
         return None
-    text = html.unescape(str(value)).strip()
-    return text or None
+    return " ".join(html.unescape(str(value)).split()) or None
+
+
+def _last_word(text: str) -> str:
+    return _fold(text.split()[-1])
 
 
 def _display_name(source: str, name: str, understat, first_name) -> tuple[str, str | None]:
     """(name, rule) for one row. Only abbreviated API-Football names ("M. Salah")
-    change: first the profile's first name when it starts with the initial
-    ("Mohamed Salah", accents kept), else the Understat name when linked, else
-    unchanged. Full names and ASA names never change."""
+    change; full names and ASA names never do. With P the profile expansion
+    (first-name first token + surname, when that token starts with the initial)
+    and U the linked Understat name:
+      U equals P ignoring accents and case -> P (keeps accents: "Marko Dmitrović")
+      U ends with the surname's last word  -> U ("Phil Foden")
+      otherwise                            -> P ("Kylian Mbappé"), else U, else unchanged.
+    `name`, `understat` and `first_name` must already be cleaned."""
     if source not in ("apif", "apif_matches"):
         return name, None
     match = _INITIAL_NAME.match(name or "")
     if not match:
         return name, None
-    first = _clean(first_name)
-    if first:
-        token = first.split()[0]
-        if _fold(token).startswith(_fold(match.group(1))):
-            return f"{token} {match.group(2)}", "initial"
-    understat = _clean(understat)
+    initial, surname = match.groups()
+    expanded = None
+    if first_name:
+        token = first_name.split()[0]
+        if _fold(token).startswith(_fold(initial)):
+            expanded = f"{token} {surname}"
+    if expanded and understat and _fold(understat) == _fold(expanded):
+        return expanded, "initial"
+    if understat and _last_word(understat) == _last_word(surname):
+        return understat, "understat"
+    if expanded:
+        return expanded, "initial"
     if understat:
         return understat, "understat"
     return name, None
 
 
+def _clean_api_football_names(p: pd.DataFrame, report: dict) -> None:
+    """Clean every API-Football player_name and the link columns in place, before
+    any matching or output. ASA names are left exactly as they are."""
+    apif = p["source"].isin(("apif", "apif_matches"))
+    cleaned = p["player_name"].where(~apif, p["player_name"].map(_clean))
+    report["names_cleaned"] = int((apif & (cleaned != p["player_name"])).sum())
+    p["player_name"] = cleaned
+    for col in ("understat_name", "profile_first_name"):
+        if col in p:
+            p[col] = p[col].map(_clean)
+
+
 def _apply_display_names(p: pd.DataFrame, report: dict) -> None:
-    understat = p["understat_name"] if "understat_name" in p else pd.Series(None, index=p.index)
-    first = (p["profile_first_name"] if "profile_first_name" in p
-             else pd.Series(None, index=p.index))
+    def text(col: str) -> list[str | None]:
+        # older callers lack the link columns; nulls may arrive as NaN
+        values = p[col] if col in p else [None] * len(p)
+        return [v if isinstance(v, str) else None for v in values]
+
+    understat, first = text("understat_name"), text("profile_first_name")
     results = [_display_name(s, n, u, f) for s, n, u, f
                in zip(p["source"], p["player_name"], understat, first)]
     new = pd.Series([r[0] for r in results], index=p.index, dtype=object)
@@ -345,7 +378,8 @@ def _apply_display_names(p: pd.DataFrame, report: dict) -> None:
 
 
 def _implausible(p: pd.DataFrame) -> pd.Series:
-    """Rows whose per-90 rates are impossible for their position (null never fails)."""
+    """Rows with MIN_MINUTES_FOR_PLAUSIBILITY+ minutes whose per-90 rates are
+    impossible for their position (a null stat never fails)."""
     nineties = p["minutes"] / 90
 
     def over(col: str, limit: float) -> pd.Series:
@@ -356,7 +390,8 @@ def _implausible(p: pd.DataFrame) -> pd.Series:
         "saves", MAX_GK_SAVES_PER_90)
     outfield_bad = (over("shots", MAX_SHOTS_PER_90) | over("goals", MAX_GOALS_PER_90)
                     | over("key_passes", MAX_KEY_PASSES_PER_90))
-    return (keeper & keeper_bad) | (~keeper & outfield_bad)
+    checked = p["minutes"] >= MIN_MINUTES_FOR_PLAUSIBILITY
+    return checked & ((keeper & keeper_bad) | (~keeper & outfield_bad))
 
 
 def _make_unique(outfield: pd.DataFrame, goalkeeper: pd.DataFrame, report: dict) -> None:
@@ -413,6 +448,7 @@ def build_frames(players: pd.DataFrame,
     for col in _MART_NUMBERS:
         p[col] = pd.to_numeric(p[col], errors="coerce").astype(float)
     p["season_label"] = p["season_label"].astype(str)
+    _clean_api_football_names(p, report)
 
     null_position = p["position_group"].isna()
     unknown = set(p.loc[~null_position, "position_group"]) - set(POSITIONS)
@@ -544,6 +580,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="warehouse.duckdb path (default: SOCCER_DATA_WAREHOUSE, "
                              "SOCCER_DATA_ROOT, ~/soccer-data)")
     args = parser.parse_args(argv)
+    # Player names are not all cp1252 (Windows consoles): never crash printing them.
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if reconfigure is not None:
+        reconfigure(encoding="utf-8", errors="replace")
 
     path = args.warehouse or warehouse_path()
     print(f"Warehouse: {path}")
@@ -559,10 +599,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  implausible: {league} {season}: {n}")
     for example in report["implausible_examples"]:
         print(f"  {example}")
-    print(f"Display names: {report['names_understat']} from Understat, "
-          f"{report['names_initial']} from the profile first name.")
-    for example in report["name_examples"][:10]:
-        print(f"  {example}")
+    print(f"Display names: {report['names_cleaned']} API-Football names cleaned "
+          f"(entities, spaces); {report['names_initial']} expanded from the profile first "
+          f"name, {report['names_understat']} taken from Understat.")
+    for rule in ("(initial,", "(understat,"):
+        for example in [e for e in report["name_examples"] if rule in e][:5]:
+            print(f"  {example}")
     print(f"Renamed {report['renamed']} colliding rows "
           f"({report['renamed_to_league']} needed the league, "
           f"{report['renamed_to_birth_year']} the birth year, "

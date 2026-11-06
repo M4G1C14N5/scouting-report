@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 import runpy
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -141,6 +143,32 @@ def test_warehouse_path_precedence(monkeypatch, tmp_path):
     assert loader.warehouse_path() == tmp_path / "w.duckdb"
 
 
+def _make_warehouse(path: Path, rows: list[dict]) -> None:
+    """A tiny warehouse.duckdb: player_season_stats plus the name-lookup tables."""
+    frame = pd.DataFrame(rows, columns=MART_COLUMNS)
+    con = duckdb.connect(str(path))
+    con.register("src_frame", frame)
+    con.execute("CREATE TABLE player_season_stats AS SELECT * FROM src_frame")
+    con.execute("CREATE TABLE league_info (apif_league_id INTEGER, league_code VARCHAR, "
+                "understat_league VARCHAR)")
+    con.execute("INSERT INTO league_info VALUES (39, 'ENG1', 'EPL'), (140, 'ESP1', 'La_liga')")
+    con.execute("CREATE TABLE int_understat__apif_match (understat_player_id BIGINT, "
+                "apif_player_id BIGINT, league_id INTEGER, season BIGINT)")
+    con.execute("INSERT INTO int_understat__apif_match VALUES (1250, 306, 39, 2025), "
+                "(1250, 306, 39, 2024)")
+    con.execute("CREATE TABLE stg_understat__player_seasons (understat_player_id BIGINT, "
+                "player_name VARCHAR, league VARCHAR, season BIGINT)")
+    con.execute("INSERT INTO stg_understat__player_seasons VALUES "
+                "(1250, 'Mohamed Salah', 'EPL', 2025), (1250, 'Mo Salah', 'EPL', 2024), "
+                "(1250, 'Wrong League', 'La_liga', 2025)")
+    con.execute("CREATE TABLE stg_apif__players (player_id BIGINT, player_name VARCHAR, "
+                "first_name VARCHAR, last_name VARCHAR)")
+    con.execute("INSERT INTO stg_apif__players VALUES (306, 'M. Salah', 'Mohamed', 'Salah'), "
+                "(1100, 'E. Haaland', 'Erling Braut', 'Haaland'), "
+                "(900, 'M. Dmitrović', 'Marko', 'Dmitrović')")
+    con.close()
+
+
 def test_read_players_filters_league_season_and_minutes(tmp_path):
     path = tmp_path / "warehouse.duckdb"
     extra = [
@@ -161,27 +189,7 @@ def test_read_players_filters_league_season_and_minutes(tmp_path):
              league_code="ENG1", season_label="2025-2026", player_name="E. Haaland",
              team="Manchester City", position_group="ATT", minutes=2400),
     ]
-    frame = pd.DataFrame(ROWS + extra + linked, columns=MART_COLUMNS)
-    con = duckdb.connect(str(path))
-    con.register("src_frame", frame)
-    con.execute("CREATE TABLE player_season_stats AS SELECT * FROM src_frame")
-    con.execute("CREATE TABLE league_info (apif_league_id INTEGER, league_code VARCHAR, "
-                "understat_league VARCHAR)")
-    con.execute("INSERT INTO league_info VALUES (39, 'ENG1', 'EPL'), (140, 'ESP1', 'La_liga')")
-    con.execute("CREATE TABLE int_understat__apif_match (understat_player_id BIGINT, "
-                "apif_player_id BIGINT, league_id INTEGER, season BIGINT)")
-    con.execute("INSERT INTO int_understat__apif_match VALUES (1250, 306, 39, 2025), "
-                "(1250, 306, 39, 2024)")
-    con.execute("CREATE TABLE stg_understat__player_seasons (understat_player_id BIGINT, "
-                "player_name VARCHAR, league VARCHAR, season BIGINT)")
-    con.execute("INSERT INTO stg_understat__player_seasons VALUES "
-                "(1250, 'Mohamed Salah', 'EPL', 2025), (1250, 'Mo Salah', 'EPL', 2024), "
-                "(1250, 'Wrong League', 'La_liga', 2025)")
-    con.execute("CREATE TABLE stg_apif__players (player_id BIGINT, player_name VARCHAR, "
-                "first_name VARCHAR, last_name VARCHAR)")
-    con.execute("INSERT INTO stg_apif__players VALUES (306, 'M. Salah', 'Mohamed', 'Salah'), "
-                "(1100, 'E. Haaland', 'Erling Braut', 'Haaland')")
-    con.close()
+    _make_warehouse(path, ROWS + extra + linked)
 
     got = loader.read_players(path)
     names = set(got["player_name"])
@@ -387,13 +395,20 @@ def test_same_name_same_club_falls_back_to_birth_year_then_a_number():
 def test_display_names_profile_first_then_understat_only_for_abbreviated():
     common = dict(league_code="ENG1", season_label="2025-2026", position_group="ATT")
     rows = [
-        # (b) first: the profile first name expands the initial, keeping accents,
-        # even when Understat has a different spelling
+        # Understat equals the profile expansion bar accents: the profile wins
         _row(source="apif", player_name="M. Salah", team="Liverpool", minutes=2500,
              understat_name="Mohamed Salah", profile_first_name="Mohamed", **common),
+        _row(source="apif", player_name="M. Dmitrović", team="Espanyol", minutes=3000,
+             understat_name="Marko Dmitrovic", profile_first_name="Marko", **common),
+        # Understat shares the surname's last word: Understat wins
+        _row(source="apif", player_name="P. Foden", team="Manchester City", minutes=2300,
+             understat_name="Phil Foden", profile_first_name="Philip", **common),
+        # Understat's surname differs: the profile expansion wins
         _row(source="apif", player_name="K. Mbappé", team="Real Madrid", minutes=2600,
              league_code="ESP1", season_label="2025-2026", position_group="ATT",
              understat_name="Kylian Mbappe-Lottin", profile_first_name="Kylian"),
+        _row(source="apif", player_name="B. De Cordova-Reid", team="Leicester", minutes=1600,
+             understat_name="Bobby Reid", profile_first_name="Bobby Armani", **common),
         _row(source="apif", player_name="E. Haaland", team="Manchester City", minutes=2400,
              profile_first_name="Erling Braut", **common),
         _row(source="apif", player_name="E. Mendy", team="Al Ahli", minutes=1800,
@@ -427,14 +442,40 @@ def test_display_names_profile_first_then_understat_only_for_abbreviated():
     report: dict = {}
     outfield, _ = loader.build_frames(players(rows), report=report)
     names = set(outfield["Player"])
-    assert {"Mohamed Salah", "Kylian Mbappé", "Erling Haaland", "Édouard Mendy", "john Doe",
+    assert {"Mohamed Salah", "Marko Dmitrović", "Phil Foden", "Kylian Mbappé",
+            "Bobby De Cordova-Reid", "Erling Haaland", "Édouard Mendy", "john Doe",
             "Harry Maguire", "N'Golo Kanté", "Arthur Masuaku", "Dani Raba",
             "Vinícius Júnior", "Bruno Fernandes", "K. Mismatch", "P. Noprofile",
             "A. Asa"} == names
-    assert report["names_initial"] == 5
-    assert report["names_understat"] == 3
-    assert len(report["name_examples"]) == 8
+    assert report["names_initial"] == 7
+    assert report["names_understat"] == 4
+    assert len(report["name_examples"]) == 11
     assert "M. Salah -> Mohamed Salah" in report["name_examples"][0]
+
+
+def test_api_football_names_are_unescaped_and_trimmed_before_matching():
+    common = dict(source="apif", league_code="ENG1", season_label="2025-2026",
+                  position_group="DEF")
+    rows = [
+        _row(player_name="D. O&apos;Shea", team="Ipswich", minutes=2500,
+             profile_first_name=" Dara ", **common),
+        _row(player_name="Jake O&apos;Brien", team="Everton", minutes=2400, **common),
+        _row(player_name="Ilyas  Ansah ", team="Union Berlin", minutes=1800, **common),
+        _row(player_name="&apos;Q. Odd", team="Burnley", minutes=900, **common),
+        _row(player_name="N. Kanté", team="Chelsea", minutes=2000,
+             understat_name="N&#039;Golo Kanté", **common),
+        # ASA names are left exactly as they are
+        _row(source="asa", league_code="MLS", season_label="2025", player_name="A. O&apos;Asa",
+             team="Austin FC", position_group="MID", minutes=1500),
+    ]
+    report: dict = {}
+    outfield, _ = loader.build_frames(players(rows), report=report)
+    names = set(outfield["Player"])
+    assert {"Dara O'Shea", "Jake O'Brien", "Ilyas Ansah", "'Q. Odd", "N'Golo Kanté",
+            "A. O&apos;Asa"} == names
+    assert not any("&apos;" in n or "&#" in n or " " in n
+                   for n in names if n != "A. O&apos;Asa")
+    assert report["names_cleaned"] == 4
 
 
 def test_names_are_fixed_before_collision_renaming():
@@ -457,28 +498,33 @@ def test_names_are_fixed_before_collision_renaming():
 def test_implausible_per_90_rows_are_dropped():
     europe = dict(source="apif", league_code="ESP1", season_label="2024-2025")
     rows = [
-        # Mamardashvili: 180 minutes with full-season keeper totals
-        _row(player_name="G. Full", team="Valencia", position_group="GK", minutes=180,
+        # full-season keeper totals on partial minutes
+        _row(player_name="G. Full", team="Valencia", position_group="GK", minutes=270,
              goals_conceded=48, saves=93, **europe),
-        _row(player_name="S. Saves", team="Getafe", position_group="GK", minutes=180,
-             goals_conceded=2, saves=19, **europe),          # 9.5 saves per 90
-        _row(player_name="K. Fine", team="Girona", position_group="GK", minutes=180,
-             goals_conceded=8, saves=18, **europe),          # 4 GA and 9 saves per 90: kept
-        _row(player_name="S. Shots", team="Betis", position_group="ATT", minutes=180,
-             shots=21, goals=1, key_passes=1, **europe),     # 10.5 shots per 90
-        _row(player_name="G. Goals", team="Betis", position_group="ATT", minutes=90,
-             shots=5, goals=4, **europe),                    # 4 goals per 90
-        _row(player_name="K. Passes", team="Sevilla", position_group="MID", minutes=90,
-             key_passes=9, **europe),                        # 9 key passes per 90
-        _row(player_name="O. Edge", team="Sevilla", position_group="MID", minutes=90,
-             shots=10, goals=3, key_passes=8, **europe),     # exactly on every limit: kept
+        _row(player_name="S. Saves", team="Getafe", position_group="GK", minutes=360,
+             goals_conceded=2, saves=37, **europe),          # 9.25 saves per 90
+        _row(player_name="K. Fine", team="Girona", position_group="GK", minutes=360,
+             goals_conceded=16, saves=36, **europe),         # 4 GA and 9 saves per 90: kept
+        _row(player_name="S. Shots", team="Betis", position_group="ATT", minutes=270,
+             shots=31, goals=1, key_passes=1, **europe),     # 10.3 shots per 90
+        _row(player_name="G. Goals", team="Betis", position_group="ATT", minutes=270,
+             shots=15, goals=10, **europe),                  # 3.3 goals per 90
+        _row(player_name="K. Passes", team="Sevilla", position_group="MID", minutes=450,
+             key_passes=41, **europe),                       # 8.2 key passes per 90
+        _row(player_name="O. Edge", team="Sevilla", position_group="MID", minutes=270,
+             shots=30, goals=9, key_passes=24, **europe),    # exactly on every limit: kept
+        # under 270 minutes the checks do not apply: short real stints stay
+        _row(player_name="D. Short", team="Leicester", position_group="GK", minutes=134,
+             goals_conceded=6, saves=4, **europe),           # 4.03 GA per 90
+        _row(player_name="E. Burst", team="Vejle", position_group="ATT", minutes=269,
+             shots=40, goals=12, key_passes=30, **europe),
         _row(source="asa", league_code="MLS", season_label="2025", player_name="A. Nulls",
              team="Austin FC", position_group="DEF", minutes=900, goals=0, shots=2),
     ]
     report: dict = {}
     outfield, goalkeeper = loader.build_frames(players(rows), report=report)
-    assert set(goalkeeper["Player"]) == {"K. Fine"}
-    assert set(outfield["Player"]) == {"O. Edge", "A. Nulls"}
+    assert set(goalkeeper["Player"]) == {"K. Fine", "D. Short"}
+    assert set(outfield["Player"]) == {"O. Edge", "E. Burst", "A. Nulls"}
     assert report["dropped_implausible"] == 5
     assert report["implausible_by_league_season"] == {("La Liga", "2024-2025"): 5}
     assert len(report["implausible_examples"]) == 5
@@ -491,6 +537,7 @@ def test_plausibility_thresholds_are_constants():
     assert loader.MAX_SHOTS_PER_90 == 10
     assert loader.MAX_GOALS_PER_90 == 3
     assert loader.MAX_KEY_PASSES_PER_90 == 8
+    assert loader.MIN_MINUTES_FOR_PLAUSIBILITY == 270
 
 
 # --- view SQL ----------------------------------------------------------------
@@ -576,6 +623,26 @@ def test_load_writes_only_v2_tables_and_views(frames):
 
 
 # --- CLI ---------------------------------------------------------------------
+
+def test_cli_prints_non_cp1252_names_on_a_cp1252_console(tmp_path):
+    path = tmp_path / "warehouse.duckdb"
+    dmitrovic = _row(source="apif", source_player_id="900", league_id=140, season=2025,
+                     league_code="ESP1", season_label="2025-2026", player_name="M. Dmitrović",
+                     team="Espanyol", position_group="GK", minutes=3000, saves=90,
+                     goals_conceded=40)
+    _make_warehouse(path, ROWS + [dmitrovic])
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
+    env.pop("PYTHONUTF8", None)
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "load_soccer_data.py"), "--dry-run",
+         "--warehouse", str(path)],
+        capture_output=True, env=env, cwd=ROOT, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
+    out = result.stdout.decode("utf-8")
+    assert "Marko Dmitrović" in out
+    assert "Dry run" in out
+
 
 def test_cli_dry_run_never_builds_a_bigquery_client(monkeypatch, capsys):
     from google.cloud import bigquery
