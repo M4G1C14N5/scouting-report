@@ -9,6 +9,7 @@ import pandas as pd
 from src.ui import metrics, stats
 
 STAT_TABLE_COLUMNS = ("Stat", "Total", "Per 90")
+MIN_COVERAGE = 0.8  # a metric needs values for this share of the pool to be drawn as a bar
 SIMILAR_COLUMNS = ("Player", "Club", "League", "Season", "Position", "Minutes", "Similarity")
 
 
@@ -24,8 +25,16 @@ def fmt_value(key: str, value: Any) -> str:
     return stats.fmt_number(value, metrics.fmt_of(key))
 
 
-def profile_rows(pool: pd.DataFrame, player_row: Mapping[str, Any],
-                 group: str) -> dict[str, list[PctRow]]:
+def same_league_pool(pool: pd.DataFrame, league: Any) -> pd.DataFrame:
+    """The rows of `pool` in `league`. The whole pool when the player has no
+    league (or the pool has no League column): nothing to narrow it by."""
+    if stats.is_missing(league) or "League" not in pool.columns:
+        return pool
+    return pool[pool["League"] == league]
+
+
+def profile_rows(pool: pd.DataFrame, player_row: Mapping[str, Any], group: str,
+                 min_coverage: float = 0.0) -> dict[str, list[PctRow]]:
     """Percentile rows per category for the group's curated metrics.
 
     Counting stats (the kinds metrics.PER90_COMPUTED_KINDS) are ranked per 90
@@ -34,12 +43,17 @@ def profile_rows(pool: pd.DataFrame, player_row: Mapping[str, Any],
     tallies, rates and ratios are ranked as they are.
 
     Metrics missing from the pool or blank for the player are skipped, and
-    so are categories left empty."""
+    so are categories left empty. A metric that fewer than `min_coverage` of
+    the pool's rows have a value for is skipped too: a rank against a few
+    players says little. Coverage counts blank values in the column, not
+    rows dropped from a per-90 ranking."""
     out: dict[str, list[PctRow]] = {}
     for category, keys in metrics.PROFILE_METRICS.get(group, {}).items():
         rows: list[PctRow] = []
         for key in keys:
             if key not in pool.columns:
+                continue
+            if min_coverage and pool[key].notna().mean() < min_coverage:
                 continue
             higher_is_better = key not in metrics.LOWER_IS_BETTER
             if metrics.KIND.get(key) in metrics.PER90_COMPUTED_KINDS:

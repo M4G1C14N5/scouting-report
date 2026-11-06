@@ -49,6 +49,32 @@ def profile_script(player: str, season: str, group: str, empty_pool: bool) -> No
     profile.render(pool, player, season, group)
 
 
+def profile_gap_script(player: str, season: str, group: str, metric: str, league: str) -> None:
+    """Profile with `metric` filled only for `league`, so other leagues lack it."""
+    import numpy as np
+
+    from src.ui.views import profile
+    from tests import fakes
+
+    pool = fakes.position_pool(group, season)
+    pool.loc[pool["League"] != league, metric] = np.nan
+    profile.render(pool, player, season, group)
+
+
+def profile_sparse_script(player: str, season: str, group: str, league: str) -> None:
+    """Every stat blank outside `league`, so no metric has coverage across the season."""
+    import numpy as np
+
+    from src.ui import metrics
+    from src.ui.views import profile
+    from tests import fakes
+
+    pool = fakes.position_pool(group, season)
+    keys = [k for k in metrics.profile_keys(group) if k in pool.columns]
+    pool.loc[pool["League"] != league, keys] = np.nan
+    profile.render(pool, player, season, group)
+
+
 def stats_script(player: str, season: str) -> None:
     from src.ui.views import stats_tab
     from tests import fakes
@@ -136,7 +162,7 @@ def test_header_goalkeeper_kpis():
 
 def test_profile_outfield_cards_and_pool_caption():
     at = _run(profile_script, "Mohamed Salah", fakes.LATEST, "ATT", False)
-    assert "vs 6 forwards in 2023-24, 450+ minutes" in _captions(at)
+    assert "Ranked against 2 forwards in Premier League 2023-24 with 450+ minutes" in _captions(at)
     md = _markdown(at)
     assert "Shooting" in md and "Passing" in md and "Progression" in md
     assert len(at.get("plotly_chart")) == 3
@@ -148,9 +174,71 @@ def test_profile_outfield_cards_and_pool_caption():
 
 def test_profile_goalkeeper():
     at = _run(profile_script, "Alisson", fakes.LATEST, "GK", False)
-    assert "vs 4 goalkeepers in 2023-24, 450+ minutes" in _captions(at)
+    assert "Ranked against 2 goalkeepers in Premier League 2023-24 with 450+ minutes" in _captions(at)
     assert len(at.get("plotly_chart")) == 1
     assert _markdown(at).count('class="fl-band-row"') == 4
+
+
+def _bar_labels(at) -> list[str]:
+    labels: list[str] = []
+    for chart in at.get("plotly_chart"):
+        for trace in json.loads(chart.proto.spec)["data"]:
+            if trace.get("type") == "bar":
+                labels.extend(y.replace("<br>", " ") for y in trace.get("y", []))
+    return labels
+
+
+def test_profile_compares_with_the_same_league_by_default():
+    at = _run(profile_script, "Mohamed Salah", fakes.LATEST, "ATT", False)
+    control = at.button_group(key="profile_compare")
+    assert control.value == "Same league"
+    assert control.options == ["Same league", "All leagues in this season"]
+    assert "Compare with" in _markdown(at)
+
+
+def test_profile_all_leagues_ranks_across_the_whole_pool():
+    at = _run(profile_script, "Mohamed Salah", fakes.LATEST, "ATT", False)
+    same = _bar_values(at)
+    at.button_group(key="profile_compare").set_value("All leagues in this season").run()
+    assert not at.exception
+    assert "Ranked against 6 forwards in all leagues in 2023-24 with 450+ minutes" in _captions(at)
+    assert _bar_values(at) != same  # a different pool gives different percentiles
+    at.button_group(key="profile_compare").set_value("Same league").run()
+    assert _bar_values(at) == same
+    assert "Ranked against 2 forwards in Premier League 2023-24" in _captions(at)
+
+
+def _bar_values(at) -> list:
+    values: list = []
+    for chart in at.get("plotly_chart"):
+        for trace in json.loads(chart.proto.spec)["data"]:
+            if trace.get("type") == "bar":
+                values.extend(trace.get("x", []))
+    return values
+
+
+def test_profile_same_league_with_one_player_says_one_player():
+    at = _run(profile_script, "Kylian Mbappé", fakes.LATEST, "ATT", False)
+    assert "Ranked against 1 forward in Ligue 1 2023-24 with 450+ minutes" in _captions(at)
+
+
+def test_profile_hides_metrics_the_chosen_pool_mostly_lacks():
+    args = ("Mohamed Salah", fakes.LATEST, "ATT", "key_passes", "Premier League")
+    at = _run(profile_gap_script, *args)
+    assert [l for l in _bar_labels(at) if l.startswith("Key Passes")]  # all of the league has it
+    at.button_group(key="profile_compare").set_value("All leagues in this season").run()
+    assert not at.exception
+    assert not [l for l in _bar_labels(at) if l.startswith("Key Passes")]  # 2 of 6 rows have it
+    assert len(_bar_labels(at)) > 0
+
+
+def test_profile_with_no_metric_coverage_says_so_instead_of_drawing_nothing():
+    at = _run(profile_sparse_script, "Mohamed Salah", fakes.LATEST, "ATT", "Premier League")
+    assert len(at.get("plotly_chart")) == 3
+    at.button_group(key="profile_compare").set_value("All leagues in this season").run()
+    assert not at.exception
+    assert len(at.get("plotly_chart")) == 0
+    assert "Not enough data to rank" in _markdown(at)
 
 
 def test_profile_player_below_threshold_gets_empty_state():

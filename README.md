@@ -102,7 +102,7 @@ Only the template stats the query player has are used, and only players who have
 - Sidebar filters: season (or all seasons), league and club
 - Search for one player. Players with several seasons in view get a season switcher.
 - Identity card with headline numbers: goals, assists, xG and xAG, or save %, goals against per 90 and clean-sheet % for keepers. A chip names the data source.
-- **Profile**: percentile bars against the same position and season (450+ minutes) on a curated metric list per position. Lower-is-better stats (errors, cards, goals against) are inverted. Counting stats are ranked per 90 minutes.
+- **Profile**: percentile bars against the same position, season and league by default (450+ minutes), or against every league in the season via "Compare with", on a curated metric list per position. Stats that fewer than 80% of the chosen pool have are not drawn. Lower-is-better stats (errors, cards, goals against) are inverted. Counting stats are ranked per 90 minutes.
 - **Stats**: every stat by category, with the season total next to per 90
 - **Similar players**: the similarity model's top matches. Select one to compare percentiles side by side and jump to their profile.
 

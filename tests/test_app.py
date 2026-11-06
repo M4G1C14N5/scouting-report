@@ -115,7 +115,7 @@ def test_outfield_player_renders_every_tab(stub_data):
     at = _select(_app(), "Mohamed Salah")
     md = _markdown(at)
     assert "Forward" in md and "xAG" in md
-    assert "vs 6 forwards in 2023-24, 450+ minutes" in _captions(at)
+    assert "Ranked against 2 forwards in Premier League 2023-24 with 450+ minutes" in _captions(at)
     assert len(at.get("plotly_chart")) == 3
     assert len(at.dataframe) == 7  # 6 stat cards + similar table
     assert not at.error
@@ -125,7 +125,7 @@ def test_goalkeeper_renders_every_tab(stub_data):
     at = _select(_app(), "Alisson")
     md = _markdown(at)
     assert "Goalkeeper" in md and "Save %" in md and "Saves / 90" in md
-    assert "vs 4 goalkeepers in 2023-24, 450+ minutes" in _captions(at)
+    assert "Ranked against 2 goalkeepers in Premier League 2023-24 with 450+ minutes" in _captions(at)
     assert len(at.get("plotly_chart")) == 1
     assert len(at.dataframe) == 3  # 2 stat cards + similar table
     assert not at.error
@@ -138,7 +138,7 @@ def test_season_switcher_defaults_to_latest_and_sticks(stub_data):
     assert at.button_group(key="season_switch").value == fakes.LATEST
     at.button_group(key="season_switch").set_value(fakes.PREVIOUS).run()
     assert not at.exception
-    assert "vs 1 forwards in 2022-23, 450+ minutes" in _captions(at)
+    assert "Ranked against 1 forward in Premier League 2022-23 with 450+ minutes" in _captions(at)
     at.slider(key="top_n").set_value(5).run()  # any rerun keeps the chosen season
     assert at.button_group(key="season_switch").value == fakes.PREVIOUS
 
@@ -186,7 +186,7 @@ def test_season_switch_recovers_when_season_filter_narrows(stub_data):
     assert not at.exception
     assert at.session_state["player_pick"] == "Mohamed Salah"
     assert at.session_state["season_switch"] == fakes.LATEST  # fell back from the filtered-out season
-    assert "vs 6 forwards in 2023-24, 450+ minutes" in _captions(at)  # only 2023-24 is in view
+    assert "Ranked against 2 forwards in Premier League 2023-24 with 450+ minutes" in _captions(at)  # only 2023-24 is in view
 
 
 def test_view_profile_switches_player(stub_data):

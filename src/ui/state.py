@@ -14,6 +14,7 @@ CLUB = "f_club"              # sidebar club selectbox
 PLAYER = "player_pick"       # player search selectbox
 SWITCH = "season_switch"     # per-player season switcher
 SWITCH_FOR = "_switch_for"   # which player SWITCH was last set for
+COMPARE = "profile_compare"  # Profile tab: rank within the league or across the season
 SIMILAR_TABLE = "similar_table"
 SIMILAR_FOR = "_similar_for"  # (player, season) the table selection belongs to
 

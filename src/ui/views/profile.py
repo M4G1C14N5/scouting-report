@@ -6,10 +6,18 @@ import pandas as pd
 import streamlit as st
 
 from src.similarity import MIN_MINUTES
-from src.ui import build, metrics, stats, theme, viz
+from src.ui import build, metrics, state, stats, theme, viz
 
 BAND_NOTE = ("Stats where lower is better (errors, cards, goals against) are inverted, "
              "so a longer bar is always better. Counting stats are ranked per 90 minutes.")
+
+
+SAME_LEAGUE = "Same league"
+ALL_LEAGUES = "All leagues in this season"
+
+
+def _plural(plural: str, n: int) -> str:
+    return plural[:-1] if n == 1 else plural
 
 
 def render(pool: pd.DataFrame | None, player: str, season: str, group: str) -> None:
@@ -30,8 +38,25 @@ def render(pool: pd.DataFrame | None, player: str, season: str, group: str) -> N
             unsafe_allow_html=True)
         return
 
-    by_category = build.profile_rows(pool, me.iloc[0], group)
-    st.caption(f"vs {len(pool):,} {plural} in {short}, {MIN_MINUTES}+ minutes")
+    player_row = me.iloc[0]
+    league = player_row.get("League")
+    st.markdown(theme.section_label_html("Compare with"), unsafe_allow_html=True)
+    scope = st.segmented_control("Compare with", [SAME_LEAGUE, ALL_LEAGUES], key=state.COMPARE,
+                                 default=SAME_LEAGUE, required=True, label_visibility="collapsed")
+    in_league = scope == SAME_LEAGUE and not stats.is_missing(league) and "League" in pool.columns
+    ranked = build.same_league_pool(pool, league) if in_league else pool
+    where = f"{league} {short}" if in_league else f"all leagues in {short}"
+    st.caption(f"Ranked against {len(ranked):,} {_plural(plural, len(ranked))} in {where} "
+               f"with {MIN_MINUTES}+ minutes")
+
+    by_category = build.profile_rows(ranked, player_row, group, min_coverage=build.MIN_COVERAGE)
+    if not by_category:
+        st.markdown(theme.empty_state_html(
+            "Not enough data to rank",
+            f"Too few {plural} in this pool have the stats for {player}'s profile."
+            + ("" if scope == ALL_LEAGUES else " Try comparing with all leagues in this season.")),
+            unsafe_allow_html=True)
+        return
     cards = list(by_category.items())
     for start in range(0, len(cards), 2):
         cols = st.columns(2, gap="medium")

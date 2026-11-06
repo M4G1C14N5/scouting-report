@@ -111,6 +111,66 @@ def test_profile_rows_per_90_pool_skips_rows_without_90s():
     assert build.profile_rows(pool.drop(columns="nineties_played"), pool.iloc[1], "DEF") == {}
 
 
+def _two_league_pool() -> pd.DataFrame:
+    # Premier League rows are far stronger than League Two rows on goals_per_90.
+    return pd.DataFrame({
+        "Player": ["P1", "P2", "P3", "L1", "L2", "L3"],
+        "League": ["Premier League"] * 3 + ["League Two"] * 3,
+        "nineties_played": [10.0] * 6,
+        "goals_per_90": [0.6, 0.7, 0.8, 0.1, 0.2, 0.3],
+        "interceptions": [10, 20, 30, np.nan, np.nan, np.nan],
+    })
+
+
+def test_same_league_pool_keeps_only_the_players_league():
+    pool = _two_league_pool()
+    assert list(build.same_league_pool(pool, "League Two")["Player"]) == ["L1", "L2", "L3"]
+    assert build.same_league_pool(pool, "La Liga").empty
+    # no league on the player: nothing to filter on, so the whole pool stays
+    assert len(build.same_league_pool(pool, None)) == 6
+    assert len(build.same_league_pool(pool, float("nan"))) == 6
+    assert len(build.same_league_pool(pool.drop(columns="League"), "League Two")) == 6
+
+
+def test_profile_rows_rank_within_the_pool_they_are_given():
+    pool = _two_league_pool()
+    l3 = pool.iloc[5]
+    league_pool = build.same_league_pool(pool, "League Two")
+    own = build.profile_rows(league_pool, l3, "DEF")["Shooting"][0]
+    everyone = build.profile_rows(pool, l3, "DEF")["Shooting"][0]
+    assert own.pct > 80 and everyone.pct < 50  # top of League Two, mid-table against all
+
+
+def test_profile_rows_hide_metrics_under_the_coverage_threshold():
+    pool = _two_league_pool()
+    pl = pool.iloc[2]
+    kwargs = {"min_coverage": build.MIN_COVERAGE}
+    # interceptions: every Premier League row has it, only half of the whole pool does
+    same = build.profile_rows(build.same_league_pool(pool, "Premier League"), pl, "DEF", **kwargs)
+    assert "interceptions" in [r.key for r in same["Defending"]]
+    both = build.profile_rows(pool, pl, "DEF", **kwargs)
+    assert "Defending" not in both
+    # the default keeps every metric that has any value, as before
+    assert "interceptions" in [r.key for r in build.profile_rows(pool, pl, "DEF")["Defending"]]
+
+
+def test_coverage_threshold_is_eighty_percent_inclusive():
+    assert build.MIN_COVERAGE == 0.8
+    base = pd.DataFrame({"nineties_played": [10.0] * 5, "interceptions": [1, 2, 3, 4, np.nan]})
+    at_threshold = build.profile_rows(base, base.iloc[0], "DEF", min_coverage=build.MIN_COVERAGE)
+    assert "interceptions" in [r.key for r in at_threshold["Defending"]]  # 4 of 5 = 80%
+    under = base.assign(interceptions=[1, 2, 3, np.nan, np.nan])
+    assert "Defending" not in build.profile_rows(under, under.iloc[0], "DEF", min_coverage=build.MIN_COVERAGE)
+
+
+def test_coverage_counts_missing_values_not_zero_minutes_rows():
+    # a row with 0 nineties is unusable for a per-90 ranking but its value is not missing data
+    pool = pd.DataFrame({"nineties_played": [10.0, 10.0, 10.0, 10.0, 0.0],
+                         "tackles_total": [10, 20, 30, 40, 5]})
+    rows = build.profile_rows(pool, pool.iloc[0], "DEF", min_coverage=build.MIN_COVERAGE)
+    assert [r.key for r in rows["Defending"]] == ["tackles_total"]
+
+
 def test_profile_row_labels_never_double_the_per_90_suffix():
     pool = _def_pool()
     for rows in build.profile_rows(pool, pool.iloc[3], "DEF").values():
