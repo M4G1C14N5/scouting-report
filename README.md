@@ -59,7 +59,9 @@ European seasons are labelled `2025-2026` (shown as 2025-26) and US calendar sea
 
 - No progressive passing or carries after 2023-24, and none of FBref's other detailed passing, possession and defensive-action splits.
 - US leagues have no tackles or interceptions, and no goalkeeper stats (American Soccer Analysis keepers are not loaded).
-- League One and League Two have no xG before 2025-26.
+- In Europe only the Big 5 have xG (from Understat); the other ten European leagues have none in 2024-25 or 2025-26.
+- API-Football rows have no pass completion %, though they have passes attempted and key passes.
+- Goalkeepers after 2023-24 have no clean sheets or penalty save %, so their similarity rests on save %, goals against per 90 and shots on target against.
 
 The similarity model works on the stats a player-season has (see below), and the Stats tab simply shows fewer rows.
 
