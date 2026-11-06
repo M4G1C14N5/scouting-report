@@ -30,7 +30,8 @@ MART_COLUMNS = [
     "dribbles_attempted", "dribbles_won", "fouls_drawn", "fouls_committed", "yellow_cards",
     "red_cards", "saves", "goals_conceded", "penalties_saved", "rating", "xg", "npxg", "xa",
     "goals_added_raw", "goals_added_above_avg", "ga_dribbling", "ga_fouling",
-    "ga_interrupting", "ga_passing", "ga_receiving", "ga_shooting",
+    "ga_interrupting", "ga_passing", "ga_receiving", "ga_shooting", "rebuilt_from_matches",
+    "position_source", "clean_sheets", "gk_starts", "wins", "draws", "losses",
 ]
 
 
@@ -61,12 +62,14 @@ ROWS = [
     _row(source="apif_matches", league_code="ENG4", season_label="2024-2025",
          player_name="Lower Defender", team="Walsall", position_group="DEF", minutes=900,
          goals=0, assists=1, penalties_scored=0, shots=0, shots_on_target=0, key_passes=3,
-         passes=400, tackles=30, interceptions=20, blocks=5, yellow_cards=2, red_cards=1),
+         passes=400, pass_completion_pct=81.5, tackles=30, interceptions=20, blocks=5,
+         yellow_cards=2, red_cards=1),
     # API-Football keeper
     _row(source="apif", league_code="ESP1", season_label="2024-2025", player_name="Keeper One",
          birth_date=_born("1995-01-15"), nationality="Spain", team="Getafe",
          position_group="GK", minutes=1800, saves=60, goals_conceded=20, penalties_saved=1,
-         goals=0, assists=0, shots=0),
+         goals=0, assists=0, shots=0, clean_sheets=8, gk_starts=20, wins=10, draws=5,
+         losses=5),
     # ASA keeper: dropped (ASA has no keeper stats)
     _row(source="asa", league_code="MLS", season_label="2024", player_name="Asa Keeper",
          team="LA Galaxy", position_group="GK", minutes=2000, goals=0, xg=0.0),
@@ -78,7 +81,8 @@ ROWS = [
          team="Chelsea", position_group="ATT", minutes=1000, goals=5, shots=20,
          shots_on_target=10, penalties_scored=1),
     _row(source="apif", league_code="SCO1", season_label="2025-2026", player_name="J. Smith",
-         team="Celtic", position_group="GK", minutes=3000, saves=0, goals_conceded=0),
+         team="Celtic", position_group="GK", minutes=3000, saves=0, goals_conceded=0,
+         clean_sheets=0, gk_starts=0),
     # Same name, same club name, different leagues: needs the league too
     _row(source="apif", league_code="POR1", season_label="2025-2026", player_name="R. Costa",
          team="Sporting", position_group="DEF", minutes=1200),
@@ -271,7 +275,7 @@ def test_outfield_maths(frames):
     assert mid["tackles_total"] == 50 and mid["interceptions"] == 30
     assert mid["tackles_plus_interceptions"] == 80 and mid["blocks_total"] == 10
     assert mid["yellow_cards"] == 5 and mid["red_cards"] == 0
-    # apif has no pass completion: stays null
+    # no pass completion for this row: stays null
     assert _null(mid["passes_completion_pct_total"])
 
 
@@ -311,7 +315,8 @@ def test_unmapped_metrics_are_null(frames):
         "expected_assisted_goals", "key_passes", "tackles_total", "blocks_total",
         "interceptions", "tackles_plus_interceptions",
         "goals_against", "goals_against_per_90", "shots_on_target_against", "saves",
-        "save_pct", "penalty_kicks_saved",
+        "save_pct", "penalty_kicks_saved", "clean_sheets", "clean_sheet_pct", "wins", "draws",
+        "losses",
     }
     for frame in (outfield, goalkeeper):
         for col in frame.columns:
@@ -331,6 +336,25 @@ def test_keeper_mapping(frames):
     assert gk["nineties_played"] == pytest.approx(20.0)
     # nothing faced: save % is null, not 0 or 100
     assert _null(_one(goalkeeper, "J. Smith (Celtic)")["save_pct"])
+
+
+def test_keeper_results_and_clean_sheet_pct(frames):
+    _, goalkeeper, _ = frames
+    gk = _one(goalkeeper, "Keeper One")
+    assert gk["clean_sheets"] == 8
+    assert gk["clean_sheet_pct"] == pytest.approx(40.0)  # 8 of 20 starts
+    assert (gk["wins"], gk["draws"], gk["losses"]) == (10, 5, 5)
+    assert _null(gk["pk_save_pct"]) and _null(gk["penalty_kicks_faced"])
+    # no starts: clean sheet % is null, not 0
+    celtic = _one(goalkeeper, "J. Smith (Celtic)")
+    assert celtic["clean_sheets"] == 0 and _null(celtic["clean_sheet_pct"])
+    # no match detail: everything stays null
+    assert _null(celtic["wins"]) and _null(celtic["draws"]) and _null(celtic["losses"])
+
+
+def test_api_pass_completion_flows_through(frames):
+    outfield, _, _ = frames
+    assert _one(outfield, "Lower Defender")["passes_completion_pct_total"] == 81.5
 
 
 def test_dropped_rows_are_counted(frames):

@@ -173,7 +173,9 @@ GOALKEEPER_COLUMNS = [
 _MART_NUMBERS = ("minutes", "goals", "assists", "penalties_scored", "shots", "shots_on_target",
                  "key_passes", "passes", "pass_completion_pct", "tackles", "interceptions",
                  "blocks", "yellow_cards", "red_cards", "saves", "goals_conceded",
-                 "penalties_saved", "xg", "npxg", "xa")
+                 "penalties_saved", "xg", "npxg", "xa",
+                 # keeper results from match detail (apif / apif_matches only)
+                 "clean_sheets", "gk_starts", "wins", "draws", "losses")
 
 _SQL_TYPES = {"INTEGER": "INT64", "INT64": "INT64", "FLOAT": "FLOAT64", "FLOAT64": "FLOAT64",
               "BOOLEAN": "BOOL", "BOOL": "BOOL", "STRING": "STRING"}
@@ -343,6 +345,11 @@ def _goalkeeper(p: pd.DataFrame) -> pd.DataFrame:
         "shots_on_target_against": faced,
         "save_pct": 100 * _div(saves, faced),
         "penalty_kicks_saved": p["penalties_saved"],
+        "clean_sheets": p["clean_sheets"],
+        "clean_sheet_pct": 100 * _div(p["clean_sheets"], p["gk_starts"]),
+        "wins": p["wins"],
+        "draws": p["draws"],
+        "losses": p["losses"],
     })
     return _frame(v, GOALKEEPER_COLUMNS, p.index, _source_label(p["source"], p["xg"]))
 
@@ -515,7 +522,9 @@ def build_frames(players: pd.DataFrame,
     report = {} if report is None else report
     p = players.copy()
     for col in _MART_NUMBERS:
-        p[col] = pd.to_numeric(p[col], errors="coerce").astype(float)
+        # a mart built before a column existed gives nulls, not a crash
+        values = p[col] if col in p else np.nan
+        p[col] = pd.to_numeric(pd.Series(values, index=p.index), errors="coerce").astype(float)
     p["season_label"] = p["season_label"].astype(str)
     _clean_api_football_names(p, report)
     _apply_nation_codes(p, report)
