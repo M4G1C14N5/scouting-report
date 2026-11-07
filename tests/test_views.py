@@ -190,7 +190,7 @@ def _bar_labels(at) -> list[str]:
 
 def test_profile_compares_with_the_same_league_by_default():
     at = _run(profile_script, "Mohamed Salah", fakes.LATEST, "ATT", False)
-    control = at.button_group(key="profile_compare")
+    control = at.selectbox(key="profile_compare")
     assert control.value == "Same league"
     assert control.options == ["Same league", "All leagues in this season"]
     assert "Compare with" in _markdown(at)
@@ -199,11 +199,11 @@ def test_profile_compares_with_the_same_league_by_default():
 def test_profile_all_leagues_ranks_across_the_whole_pool():
     at = _run(profile_script, "Mohamed Salah", fakes.LATEST, "ATT", False)
     same = _bar_values(at)
-    at.button_group(key="profile_compare").set_value("All leagues in this season").run()
+    at.selectbox(key="profile_compare").set_value("All leagues in this season").run()
     assert not at.exception
     assert "Ranked against 6 forwards in all leagues in 2023-24 with 450+ minutes" in _captions(at)
     assert _bar_values(at) != same  # a different pool gives different percentiles
-    at.button_group(key="profile_compare").set_value("Same league").run()
+    at.selectbox(key="profile_compare").set_value("Same league").run()
     assert _bar_values(at) == same
     assert "Ranked against 2 forwards in Premier League 2023-24" in _captions(at)
 
@@ -226,7 +226,7 @@ def test_profile_hides_metrics_the_chosen_pool_mostly_lacks():
     args = ("Mohamed Salah", fakes.LATEST, "ATT", "key_passes", "Premier League")
     at = _run(profile_gap_script, *args)
     assert [l for l in _bar_labels(at) if l.startswith("Key Passes")]  # all of the league has it
-    at.button_group(key="profile_compare").set_value("All leagues in this season").run()
+    at.selectbox(key="profile_compare").set_value("All leagues in this season").run()
     assert not at.exception
     assert not [l for l in _bar_labels(at) if l.startswith("Key Passes")]  # 2 of 6 rows have it
     assert len(_bar_labels(at)) > 0
@@ -235,7 +235,7 @@ def test_profile_hides_metrics_the_chosen_pool_mostly_lacks():
 def test_profile_with_no_metric_coverage_says_so_instead_of_drawing_nothing():
     at = _run(profile_sparse_script, "Mohamed Salah", fakes.LATEST, "ATT", "Premier League")
     assert len(at.get("plotly_chart")) == 3
-    at.button_group(key="profile_compare").set_value("All leagues in this season").run()
+    at.selectbox(key="profile_compare").set_value("All leagues in this season").run()
     assert not at.exception
     assert len(at.get("plotly_chart")) == 0
     assert "Not enough data to rank" in _markdown(at)

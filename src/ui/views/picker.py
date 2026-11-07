@@ -38,8 +38,8 @@ def sidebar(index: pd.DataFrame) -> pd.DataFrame:
         st.markdown(theme.brand_html(), unsafe_allow_html=True)
 
         st.markdown(theme.section_label_html("Season"), unsafe_allow_html=True)
-        season = st.pills("Season", [state.ALL_SEASONS, *seasons], key=state.SEASON,
-                          required=True, format_func=_season_label, label_visibility="collapsed")
+        season = st.selectbox("Season", [state.ALL_SEASONS, *seasons], key=state.SEASON,
+                              format_func=_season_label, label_visibility="collapsed")
 
         st.markdown(theme.section_label_html("League"), unsafe_allow_html=True)
         league = st.selectbox("League", [state.ALL_LEAGUES, *filters.leagues(index)],
@@ -99,5 +99,5 @@ def season_switch(filtered: pd.DataFrame, player: str) -> str | None:
     if len(seasons) == 1:
         return seasons[0]
     st.markdown(theme.section_label_html("Season"), unsafe_allow_html=True)
-    return st.segmented_control("Season", seasons[::-1], key=state.SWITCH, required=True,
-                                format_func=stats.short_season, label_visibility="collapsed")
+    return st.selectbox("Season", seasons[::-1], key=state.SWITCH,
+                        format_func=stats.short_season, label_visibility="collapsed")

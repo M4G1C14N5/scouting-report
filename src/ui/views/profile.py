@@ -41,8 +41,8 @@ def render(pool: pd.DataFrame | None, player: str, season: str, group: str) -> N
     player_row = me.iloc[0]
     league = player_row.get("League")
     st.markdown(theme.section_label_html("Compare with"), unsafe_allow_html=True)
-    scope = st.segmented_control("Compare with", [SAME_LEAGUE, ALL_LEAGUES], key=state.COMPARE,
-                                 default=SAME_LEAGUE, required=True, label_visibility="collapsed")
+    scope = st.selectbox("Compare with", [SAME_LEAGUE, ALL_LEAGUES], key=state.COMPARE,
+                         label_visibility="collapsed")
     in_league = scope == SAME_LEAGUE and not stats.is_missing(league) and "League" in pool.columns
     ranked = build.same_league_pool(pool, league) if in_league else pool
     where = f"{league} {short}" if in_league else f"all leagues in {short}"

@@ -8,13 +8,13 @@ ALL_SEASONS = "All"
 ALL_LEAGUES = "All leagues"
 ALL_CLUBS = "All clubs"
 
-SEASON = "f_season"          # sidebar season pills
+SEASON = "f_season"          # sidebar season selectbox
 LEAGUE = "f_league"          # sidebar league selectbox
 CLUB = "f_club"              # sidebar club selectbox
 PLAYER = "player_pick"       # player search selectbox
-SWITCH = "season_switch"     # per-player season switcher
+SWITCH = "season_switch"     # per-player season selectbox
 SWITCH_FOR = "_switch_for"   # which player SWITCH was last set for
-COMPARE = "profile_compare"  # Profile tab: rank within the league or across the season
+COMPARE = "profile_compare"  # Profile tab: "Compare with" selectbox (same league or all leagues)
 SIMILAR_TABLE = "similar_table"
 SIMILAR_FOR = "_similar_for"  # (player, season) the table selection belongs to
 

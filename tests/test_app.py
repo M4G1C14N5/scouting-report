@@ -67,7 +67,7 @@ def test_no_selection_shows_hero_onboarding_and_footer(stub_data):
     assert not at.tabs
     assert "Showing 11 players" in " ".join(c.value for c in at.sidebar.caption)
     assert at.selectbox(key="player_pick").value is None  # nobody auto-selected
-    assert at.button_group(key="f_season").value == fakes.LATEST  # sidebar defaults to the latest season
+    assert at.selectbox(key="f_season").value == fakes.LATEST  # sidebar defaults to the latest season
 
 
 def _index_with_new_seasons():
@@ -87,18 +87,18 @@ def _index_with_new_seasons():
 def test_sidebar_opens_on_the_newest_european_season(stub_data, monkeypatch):
     monkeypatch.setattr(data, "load_player_index", lambda _bq: _index_with_new_seasons())
     at = _app()
-    pills = at.button_group(key="f_season")
-    assert pills.options[:4] == ["All", "2026", "2025-26", "2024-25"]  # newest first
-    assert pills.value == "2025-2026"  # not "2026", which holds only US leagues
+    season = at.selectbox(key="f_season")
+    assert season.options[:4] == ["All", "2026", "2025-26", "2024-25"]  # newest first
+    assert season.value == "2025-2026"  # not "2026", which holds only US leagues
     assert at.button(key="try_example").label == "Try an example: Mohamed Salah"
 
 
 def test_season_switch_lists_every_season_newest_first(stub_data, monkeypatch):
     monkeypatch.setattr(data, "load_player_index", lambda _bq: _index_with_new_seasons())
     at = _app()
-    at.button_group(key="f_season").set_value("All").run()
+    at.selectbox(key="f_season").set_value("All").run()
     at.selectbox(key="player_pick").set_value("Mohamed Salah").run()
-    switch = at.button_group(key="season_switch")
+    switch = at.selectbox(key="season_switch")
     assert switch.options == ["2025-26", "2024-25", "2023-24", "2022-23"]
     assert switch.value == "2025-2026"
 
@@ -133,14 +133,14 @@ def test_goalkeeper_renders_every_tab(stub_data):
 
 def test_season_switcher_defaults_to_latest_and_sticks(stub_data):
     at = _app()
-    at.button_group(key="f_season").set_value("All").run()
+    at.selectbox(key="f_season").set_value("All").run()
     at = _select(at, "Mohamed Salah")
-    assert at.button_group(key="season_switch").value == fakes.LATEST
-    at.button_group(key="season_switch").set_value(fakes.PREVIOUS).run()
+    assert at.selectbox(key="season_switch").value == fakes.LATEST
+    at.selectbox(key="season_switch").set_value(fakes.PREVIOUS).run()
     assert not at.exception
     assert "Ranked against 1 forward in Premier League 2022-23 with 450+ minutes" in _captions(at)
     at.slider(key="top_n").set_value(5).run()  # any rerun keeps the chosen season
-    assert at.button_group(key="season_switch").value == fakes.PREVIOUS
+    assert at.selectbox(key="season_switch").value == fakes.PREVIOUS
 
 
 def test_low_minutes_player_gets_empty_states(stub_data):
@@ -152,7 +152,7 @@ def test_low_minutes_player_gets_empty_states(stub_data):
 
 def test_filters_with_no_players_show_an_empty_state(stub_data):
     at = _app()
-    at.button_group(key="f_season").set_value(fakes.PREVIOUS).run()
+    at.selectbox(key="f_season").set_value(fakes.PREVIOUS).run()
     at.selectbox(key="f_league").set_value("Bundesliga").run()
     assert not at.exception
     assert "No players match these filters" in _markdown(at)
@@ -178,11 +178,11 @@ def test_player_cleared_when_league_filter_excludes_them(stub_data):
 
 def test_season_switch_recovers_when_season_filter_narrows(stub_data):
     at = _app()
-    at.button_group(key="f_season").set_value("All").run()
+    at.selectbox(key="f_season").set_value("All").run()
     at = _select(at, "Mohamed Salah")
-    at.button_group(key="season_switch").set_value(fakes.PREVIOUS).run()
+    at.selectbox(key="season_switch").set_value(fakes.PREVIOUS).run()
     assert not at.exception
-    at.button_group(key="f_season").set_value(fakes.LATEST).run()
+    at.selectbox(key="f_season").set_value(fakes.LATEST).run()
     assert not at.exception
     assert at.session_state["player_pick"] == "Mohamed Salah"
     assert at.session_state["season_switch"] == fakes.LATEST  # fell back from the filtered-out season
