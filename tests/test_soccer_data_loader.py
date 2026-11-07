@@ -16,7 +16,7 @@ import pandas as pd
 import pytest
 
 from src import soccer_data_loader as loader
-from tests.schema_utils import feature_columns
+from tests.schema_utils import feature_columns, newer_source_columns
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -133,6 +133,12 @@ def test_leagues_and_seasons():
 def test_column_lists_match_schema_sql():
     assert loader.OUTFIELD_COLUMNS == feature_columns("outfield_features")
     assert loader.GOALKEEPER_COLUMNS == feature_columns("goalkeeper_features")
+
+
+def test_schema_sql_null_cast_types_match_the_v2_types():
+    for table in ("outfield_features", "goalkeeper_features"):
+        for column, kind in newer_source_columns(table).items():
+            assert loader.bq_type(column) == kind, (table, column)
 
 
 # --- warehouse ---------------------------------------------------------------
@@ -697,9 +703,11 @@ class FakeClient:
 
 
 def _live_schema(table: str) -> list[tuple[str, str]]:
+    """The live FBref table: schema.sql's columns without the newer-source ones."""
     ints = {"Age", "Born", "minutes", "std_goals", "goals_against", "saves"}
+    newer = newer_source_columns(table)
     out = []
-    for col in feature_columns(table):
+    for col in [c for c in feature_columns(table) if c not in newer]:
         if col in loader.IDENTITY_COLUMNS and col not in ints:
             out.append((col, "STRING"))
         else:
@@ -716,11 +724,17 @@ def test_load_writes_only_v2_tables_and_views(frames):
 
     written = [ref.split(".")[-1] for ref, _, _ in client.loads]
     assert written == ["outfield_features_v2", "goalkeeper_features_v2"]
-    for ref, frame, config in client.loads:
+    for (ref, frame, config), table in zip(client.loads, ("outfield_features",
+                                                          "goalkeeper_features")):
         assert config.write_disposition == "WRITE_TRUNCATE"
         names = [f.name for f in config.schema]
         assert names[-1] == "Source" and config.schema[-1].field_type == "STRING"
         assert names == list(frame.columns)
+        # the newer-source columns follow the FBref ones, typed as schema.sql casts them
+        newer = newer_source_columns(table)
+        fields = {f.name: f.field_type for f in config.schema}
+        assert names[-1 - len(newer):-1] == list(newer)
+        assert {c: fields[c] for c in newer} == newer
         # integer columns arrive as nullable integers, not floats
         assert str(frame["Age"].dtype) == "Int64"
     assert len(client.queries) == 2
@@ -741,7 +755,9 @@ def test_load_adds_columns_the_fbref_table_lacks_to_v2_and_null_casts_them(frame
     fields = {f.name: f.field_type for f in config.schema}
     assert fields["clearances"] == "INT64" and fields["goals_minus_xg"] == "FLOAT64"
     # after the live columns, in Hub column order
-    assert [f.name for f in config.schema][-3:] == ["goals_minus_xg", "clearances", "Source"]
+    names = [f.name for f in config.schema]
+    assert (names.index("errors_leading_to_shot") < names.index("goals_minus_xg")
+            < names.index("clearances") < names.index("Source"))
     assert str(frame["clearances"].dtype) == "Int64"
     first, second = client.queries[0].split("UNION ALL")
     assert "CAST(NULL AS INT64) AS clearances" in first

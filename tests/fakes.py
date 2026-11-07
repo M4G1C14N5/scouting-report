@@ -6,7 +6,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from tests.schema_utils import IDENTITY_COLUMNS, feature_columns
+from tests.schema_utils import IDENTITY_COLUMNS, feature_columns, newer_source_columns
 
 LATEST = "2023-2024"
 PREVIOUS = "2022-2023"
@@ -35,11 +35,15 @@ def player_index() -> pd.DataFrame:
 
 
 def _feature_frame(table: str, rows: list[tuple]) -> pd.DataFrame:
+    """FBref rows: every FBref metric filled, the newer-source metrics null."""
     cols = feature_columns(table)
+    newer = newer_source_columns(table)
     rng = np.random.default_rng(7 if table == "outfield_features" else 11)
     records = []
     for player, season, squad, league, pos, group, minutes, nation, age in rows:
-        rec = {c: float(rng.uniform(0.05, 5.0)) for c in cols if c not in IDENTITY_COLUMNS}
+        rec = {c: float(rng.uniform(0.05, 5.0)) for c in cols
+               if c not in IDENTITY_COLUMNS and c not in newer}
+        rec.update({c: np.nan for c in newer})
         rec.update(Player=player, Nation=nation, Position=pos, Squad=squad, League=league,
                    Age=age, Born=2023 - age, Season=season, position_group=group,
                    minutes=minutes, nineties_played=round(minutes / 90, 1), Source=SOURCE)

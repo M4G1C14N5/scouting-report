@@ -58,3 +58,19 @@ def feature_columns(table: str) -> list[str]:
 
 def numeric_columns(table: str) -> list[str]:
     return [c for c in feature_columns(table) if c not in IDENTITY_COLUMNS]
+
+
+@lru_cache(maxsize=None)
+def newer_source_columns(table: str) -> dict[str, str]:
+    """{column: BigQuery type} for the `CAST(NULL AS <type>) AS <column>` items of
+    `scouting.<table>`: metrics only the newer sources have (null for FBref)."""
+    text = SCHEMA.read_text(encoding="utf-8")
+    match = re.search(
+        r"CREATE OR REPLACE TABLE `scouting\." + re.escape(table) + r"` AS\s+SELECT(.*?)\nFROM ",
+        text,
+        re.S,
+    )
+    if not match:
+        raise ValueError(f"{table} not found in {SCHEMA}")
+    return {name: kind for kind, name in re.findall(
+        r"CAST\(NULL AS (\w+)\)\s+AS\s+(\w+)", match.group(1))}

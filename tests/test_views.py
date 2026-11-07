@@ -83,6 +83,14 @@ def stats_script(player: str, season: str) -> None:
     stats_tab.render(row, row["position_group"])
 
 
+def stats_row_script(row: dict) -> None:
+    import pandas as pd
+
+    from src.ui.views import stats_tab
+
+    stats_tab.render(pd.Series(row), row["position_group"])
+
+
 def similar_script(player: str, season: str) -> None:
     from src.ui.views import similar
     from tests import fakes
@@ -164,8 +172,12 @@ def test_profile_outfield_cards_and_pool_caption():
     at = _run(profile_script, "Mohamed Salah", fakes.LATEST, "ATT", False)
     assert "Ranked against 2 forwards in Premier League 2023-24 with 450+ minutes" in _captions(at)
     md = _markdown(at)
-    assert "Shooting" in md and "Passing" in md and "Progression" in md
-    assert len(at.get("plotly_chart")) == 3
+    for category in ("Shooting", "Chance creation", "Passing", "Possession and dribbling"):
+        assert category in md, category
+    # FBref rows have none of the newer-source stats: no Duels or Goals added card
+    assert "Duels" not in md and "Goals added" not in md
+    assert len(at.get("plotly_chart")) == 4
+    assert md.index("Shooting") < md.index("Chance creation") < md.index("Passing")
     # the band key is a stacked HTML block now, not a one-line caption
     assert "Elite 75th+" not in _captions(at)
     assert md.count('class="fl-band-row"') == 4
@@ -234,7 +246,7 @@ def test_profile_hides_metrics_the_chosen_pool_mostly_lacks():
 
 def test_profile_with_no_metric_coverage_says_so_instead_of_drawing_nothing():
     at = _run(profile_sparse_script, "Mohamed Salah", fakes.LATEST, "ATT", "Premier League")
-    assert len(at.get("plotly_chart")) == 3
+    assert len(at.get("plotly_chart")) == 4
     at.selectbox(key="profile_compare").set_value("All leagues in this season").run()
     assert not at.exception
     assert len(at.get("plotly_chart")) == 0
@@ -255,13 +267,25 @@ def test_profile_empty_pool_gets_empty_state():
 
 # --- stats -------------------------------------------------------------------
 
-def test_stats_outfield_has_six_category_tables():
+def test_stats_outfield_fbref_row_has_seven_category_tables_in_order():
     at = _run(stats_script, "Mohamed Salah", fakes.LATEST)
-    assert len(at.dataframe) == 6
+    assert len(at.dataframe) == 7
     assert list(at.dataframe[0].value.columns) == list(build.STAT_TABLE_COLUMNS)
     md = _markdown(at)
-    for category in ("Shooting", "Passing", "Defending", "Progression", "Discipline", "Playing time"):
-        assert category in md
+    shown = ("Shooting", "Chance creation", "Passing", "Possession and dribbling", "Defending",
+             "Discipline", "Playing time")
+    positions = [md.index(category) for category in shown]
+    assert positions == sorted(positions)
+    assert "Duels" not in md and "Goals added" not in md  # FBref rows lack them
+
+
+def test_stats_newer_source_row_shows_duels_and_goals_added():
+    row = _new_source_row(duels_total=120.0, duels_won=66.0, duels_won_pct=55.0,
+                          goals_added=1.8, ga_shooting=0.9)
+    at = _run(stats_row_script, row)
+    md = _markdown(at)
+    assert "Duels" in md and "Goals added" in md
+    assert len(at.dataframe) == 9
     assert "Per 90 = per 90 minutes played" in _captions(at)
 
 

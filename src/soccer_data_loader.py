@@ -161,6 +161,15 @@ OUTFIELD_COLUMNS = [
     "tackles_def_3rd", "tackles_mid_3rd", "tackles_att_3rd", "dribblers_tackled",
     "dribblers_tackled_pct", "blocks_total", "interceptions", "tackles_plus_interceptions",
     "clearances", "errors_leading_to_shot",
+    # newer sources only (null for FBref)
+    "appearances", "starts", "match_rating", "penalties_missed", "xg_chain", "xg_buildup",
+    "xpass_completion_pct", "passes_completed_over_expected",
+    "passes_completed_over_expected_p100", "avg_pass_distance", "avg_vertical_pass_distance",
+    "dribbles_attempted", "dribbles_completed", "dribble_success_pct", "fouls_drawn",
+    "penalties_won", "share_team_touches_pct", "dribbled_past", "duels_total", "duels_won",
+    "duels_won_pct", "goals_added", "goals_added_above_avg", "ga_shooting", "ga_passing",
+    "ga_receiving", "ga_dribbling", "ga_interrupting", "ga_fouling", "fouls_committed",
+    "penalties_conceded", "offsides",
 ]
 GOALKEEPER_COLUMNS = [
     "Player", "Nation", "Position", "Squad", "League", "Age", "Born", "Season",
@@ -168,6 +177,8 @@ GOALKEEPER_COLUMNS = [
     "shots_on_target_against", "saves", "save_pct", "wins", "draws", "losses",
     "clean_sheets", "clean_sheet_pct", "penalty_kicks_faced", "penalty_kicks_allowed",
     "penalty_kicks_saved", "pk_save_pct",
+    # newer sources only (null for FBref)
+    "appearances", "starts", "match_rating",
 ]
 
 _MART_NUMBERS = ("minutes", "goals", "assists", "penalties_scored", "shots", "shots_on_target",
@@ -288,11 +299,10 @@ def _identity(p: pd.DataFrame) -> dict[str, pd.Series]:
 
 
 def _frame(values: dict[str, pd.Series], columns: list[str], index, source: pd.Series):
-    out = pd.DataFrame(index=index)
-    for col in columns:
-        out[col] = values[col] if col in values else np.nan
-    out["Source"] = source
-    return out.reset_index(drop=True)
+    data = {col: values[col] if col in values else pd.Series(np.nan, index=index)
+            for col in columns}
+    data["Source"] = source
+    return pd.DataFrame(data, index=index).reset_index(drop=True)
 
 
 def _outfield(p: pd.DataFrame) -> pd.DataFrame:

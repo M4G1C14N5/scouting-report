@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from src.similarity import FEATURE_TEMPLATES
 from src.ui import metrics
-from tests.schema_utils import numeric_columns
+from tests.schema_utils import newer_source_columns, numeric_columns
 
 OUTFIELD = set(numeric_columns("outfield_features"))
 GOALKEEPER = set(numeric_columns("goalkeeper_features"))
@@ -21,10 +21,75 @@ def test_every_feature_column_has_a_label_category_and_kind():
     assert set(metrics.KIND) == every
 
 
-def test_categories_are_the_spec_seven_in_display_order():
-    assert metrics.CATEGORY_ORDER == ("Shooting", "Passing", "Defending", "Progression",
-                                      "Discipline", "Playing time", "Goalkeeping")
+def test_categories_in_display_order():
+    assert metrics.CATEGORY_ORDER == ("Shooting", "Chance creation", "Passing",
+                                      "Possession and dribbling", "Defending", "Duels",
+                                      "Goals added", "Discipline", "Playing time", "Goalkeeping")
     assert set(metrics.STAT_CATEGORIES.values()) == set(metrics.CATEGORY_ORDER)
+
+
+def test_metrics_are_listed_category_by_category_in_display_order():
+    order = [metrics.CATEGORY_ORDER.index(c) for c in metrics.STAT_CATEGORIES.values()]
+    assert order == sorted(order)
+
+
+# Newer-source columns (API-Football, Understat, American Soccer Analysis): kind and category.
+NEWER = {
+    "appearances": ("tally", "Playing time"),
+    "starts": ("tally", "Playing time"),
+    "match_rating": ("ratio", "Playing time"),
+    "penalties_missed": ("tally", "Shooting"),
+    "xg_chain": ("total", "Chance creation"),
+    "xg_buildup": ("total", "Chance creation"),
+    "xpass_completion_pct": ("pct", "Passing"),
+    "passes_completed_over_expected": ("total", "Passing"),
+    "passes_completed_over_expected_p100": ("ratio", "Passing"),
+    "avg_pass_distance": ("distance", "Passing"),
+    "avg_vertical_pass_distance": ("distance", "Passing"),
+    "dribbles_attempted": ("count", "Possession and dribbling"),
+    "dribbles_completed": ("count", "Possession and dribbling"),
+    "dribble_success_pct": ("pct", "Possession and dribbling"),
+    "fouls_drawn": ("count", "Possession and dribbling"),
+    "penalties_won": ("tally", "Possession and dribbling"),
+    "share_team_touches_pct": ("pct", "Possession and dribbling"),
+    "dribbled_past": ("count", "Defending"),
+    "duels_total": ("count", "Duels"),
+    "duels_won": ("count", "Duels"),
+    "duels_won_pct": ("pct", "Duels"),
+    "goals_added": ("total", "Goals added"),
+    "goals_added_above_avg": ("total", "Goals added"),
+    "ga_shooting": ("total", "Goals added"),
+    "ga_passing": ("total", "Goals added"),
+    "ga_receiving": ("total", "Goals added"),
+    "ga_dribbling": ("total", "Goals added"),
+    "ga_interrupting": ("total", "Goals added"),
+    "ga_fouling": ("total", "Goals added"),
+    "fouls_committed": ("count", "Discipline"),
+    "penalties_conceded": ("tally", "Discipline"),
+    "offsides": ("count", "Discipline"),
+}
+
+
+def test_newer_source_metrics_kinds_and_categories():
+    newer = set(newer_source_columns("outfield_features")) | set(
+        newer_source_columns("goalkeeper_features"))
+    assert newer == set(NEWER)
+    for key, (kind, category) in NEWER.items():
+        assert (metrics.KIND[key], metrics.STAT_CATEGORIES[key]) == (kind, category), key
+
+
+def test_goals_added_labels_name_the_action():
+    assert metrics.label("ga_dribbling") == "Goals Added: Dribbling"
+    assert metrics.label("ga_interrupting") == "Goals Added: Defending"
+    assert metrics.label("xg_chain") == "xG Chain"
+
+
+def test_labels_are_short_and_have_no_long_dashes():
+    long_dashes = (chr(0x2013), chr(0x2014))
+    for key, text in metrics.STAT_LABELS.items():
+        assert not any(d in text for d in long_dashes), key
+        if key in NEWER:
+            assert len(text) <= 28, (key, text)
 
 
 def test_kinds_are_known():
@@ -56,11 +121,21 @@ def test_profile_categories_are_known_categories():
         assert set(categories) <= set(metrics.CATEGORY_ORDER)
 
 
+def test_profile_cards_follow_the_category_order_and_each_metric_its_category():
+    for group, categories in metrics.PROFILE_METRICS.items():
+        order = [metrics.CATEGORY_ORDER.index(c) for c in categories]
+        assert order == sorted(order), group
+        for category, keys in categories.items():
+            wrong = [k for k in keys if metrics.STAT_CATEGORIES[k] != category]
+            assert not wrong, (group, category, wrong)
+
+
 def test_lower_is_better_keys_are_real_columns():
     assert metrics.LOWER_IS_BETTER <= OUTFIELD | GOALKEEPER
     assert metrics.LOWER_IS_BETTER == {
         "errors_leading_to_shot", "yellow_cards", "red_cards", "goals_against",
         "goals_against_per_90", "losses", "penalty_kicks_allowed",
+        "dribbled_past", "fouls_committed", "penalties_conceded", "penalties_missed",
     }
 
 
@@ -89,14 +164,17 @@ def test_helpers():
     assert metrics.fmt_of("minutes") == "int"
     assert metrics.fmt_of("std_xg") == "dec1"
     assert metrics.fmt_of("save_pct") == "pct"
-    assert metrics.keys_in_category("Discipline") == ["yellow_cards", "red_cards"]
+    assert metrics.keys_in_category("Discipline") == ["yellow_cards", "red_cards",
+                                                      "fouls_committed", "penalties_conceded",
+                                                      "offsides"]
     assert metrics.stats_categories("GK") == ["Goalkeeping", "Playing time"]
-    assert metrics.stats_categories("ATT") == ["Shooting", "Passing", "Defending", "Progression",
-                                               "Discipline", "Playing time"]
+    assert metrics.stats_categories("ATT") == ["Shooting", "Chance creation", "Passing",
+                                               "Possession and dribbling", "Defending", "Duels",
+                                               "Goals added", "Discipline", "Playing time"]
 
 
 def test_duplicate_stat_columns_are_hidden_from_the_stats_tab():
     # xag (standard table) and expected_assisted_goals (passing table) are the same number
     assert "expected_assisted_goals" in metrics.STAT_LABELS
-    assert "expected_assisted_goals" not in metrics.keys_in_category("Passing")
-    assert "xag" in metrics.keys_in_category("Passing")
+    assert "expected_assisted_goals" not in metrics.keys_in_category("Chance creation")
+    assert "xag" in metrics.keys_in_category("Chance creation")

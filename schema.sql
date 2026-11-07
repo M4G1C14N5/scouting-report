@@ -269,7 +269,50 @@ SELECT
     d.interceptions,
     d.tackles_plus_interceptions,
     d.clearances,
-    d.errors_leading_to_shot
+    d.errors_leading_to_shot,
+
+    -- Newer sources only (API-Football, Understat, American Soccer Analysis),
+    -- null for FBref seasons. src/soccer_data_loader.py fills them in
+    -- outfield_features_v2; the outfield_all view null-casts them for FBref rows.
+    -- Playing time and shooting (API-Football)
+    CAST(NULL AS INT64)   AS appearances,
+    CAST(NULL AS INT64)   AS starts,
+    CAST(NULL AS FLOAT64) AS match_rating,
+    CAST(NULL AS INT64)   AS penalties_missed,
+    -- Chance creation (Understat, big five)
+    CAST(NULL AS FLOAT64) AS xg_chain,
+    CAST(NULL AS FLOAT64) AS xg_buildup,
+    -- Passing (American Soccer Analysis)
+    CAST(NULL AS FLOAT64) AS xpass_completion_pct,
+    CAST(NULL AS FLOAT64) AS passes_completed_over_expected,
+    CAST(NULL AS FLOAT64) AS passes_completed_over_expected_p100,
+    CAST(NULL AS FLOAT64) AS avg_pass_distance,
+    CAST(NULL AS FLOAT64) AS avg_vertical_pass_distance,
+    -- Possession and dribbling (API-Football; touches share from ASA)
+    CAST(NULL AS INT64)   AS dribbles_attempted,
+    CAST(NULL AS INT64)   AS dribbles_completed,
+    CAST(NULL AS FLOAT64) AS dribble_success_pct,
+    CAST(NULL AS INT64)   AS fouls_drawn,
+    CAST(NULL AS INT64)   AS penalties_won,
+    CAST(NULL AS FLOAT64) AS share_team_touches_pct,
+    -- Defending and duels (API-Football)
+    CAST(NULL AS INT64)   AS dribbled_past,
+    CAST(NULL AS INT64)   AS duels_total,
+    CAST(NULL AS INT64)   AS duels_won,
+    CAST(NULL AS FLOAT64) AS duels_won_pct,
+    -- Goals added (American Soccer Analysis)
+    CAST(NULL AS FLOAT64) AS goals_added,
+    CAST(NULL AS FLOAT64) AS goals_added_above_avg,
+    CAST(NULL AS FLOAT64) AS ga_shooting,
+    CAST(NULL AS FLOAT64) AS ga_passing,
+    CAST(NULL AS FLOAT64) AS ga_receiving,
+    CAST(NULL AS FLOAT64) AS ga_dribbling,
+    CAST(NULL AS FLOAT64) AS ga_interrupting,
+    CAST(NULL AS FLOAT64) AS ga_fouling,
+    -- Discipline (API-Football)
+    CAST(NULL AS INT64)   AS fouls_committed,
+    CAST(NULL AS INT64)   AS penalties_conceded,
+    CAST(NULL AS INT64)   AS offsides
 
 FROM `scouting.standard` s
 LEFT JOIN `scouting.shooting`  sh ON s.Player = sh.Player AND s.Season = sh.Season
@@ -309,7 +352,12 @@ SELECT
     g.penalty_kicks_faced,
     g.penalty_kicks_allowed,
     g.penalty_kicks_saved,
-    g.pk_save_pct
+    g.pk_save_pct,
+
+    -- Newer sources only (API-Football), null for FBref seasons
+    CAST(NULL AS INT64)   AS appearances,
+    CAST(NULL AS INT64)   AS starts,
+    CAST(NULL AS FLOAT64) AS match_rating
 
 FROM `scouting.standard` s
 INNER JOIN `scouting.goalkeeping` g ON s.Player = g.Player AND s.Season = g.Season

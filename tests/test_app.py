@@ -116,8 +116,8 @@ def test_outfield_player_renders_every_tab(stub_data):
     md = _markdown(at)
     assert "Forward" in md and "xAG" in md
     assert "Ranked against 2 forwards in Premier League 2023-24 with 450+ minutes" in _captions(at)
-    assert len(at.get("plotly_chart")) == 3
-    assert len(at.dataframe) == 7  # 6 stat cards + similar table
+    assert len(at.get("plotly_chart")) == 4  # profile cards with FBref stats
+    assert len(at.dataframe) == 8  # 7 stat cards + similar table
     assert not at.error
 
 
