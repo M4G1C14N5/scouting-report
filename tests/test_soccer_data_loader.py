@@ -647,6 +647,28 @@ def test_view_sql_casts_v2_columns_and_names_only_its_tables():
     assert referenced == {"goalkeeper_all", "goalkeeper_features", "goalkeeper_features_v2"}
 
 
+def test_view_sql_null_casts_the_columns_only_v2_has():
+    sql = loader.view_sql("outfield_features", FBREF_COLUMNS,
+                          [("duels_total", "INT64"), ("match_rating", "FLOAT64")])
+    first, second = sql.split("UNION ALL")
+    assert "CAST(NULL AS INT64) AS duels_total" in first
+    assert "CAST(NULL AS FLOAT64) AS match_rating" in first
+    assert "CAST(duels_total AS INT64) AS duels_total" in second
+    assert "CAST(match_rating AS FLOAT64) AS match_rating" in second
+    # same column order on both sides of the union, Source last
+    assert first.index("save_pct") < first.index("duels_total") < first.index("'FBref' AS Source")
+    assert second.index("AS save_pct") < second.index("AS duels_total") < second.index("Source\n")
+
+
+def test_bigquery_type_of_a_new_column_follows_its_metric_kind():
+    assert loader.bq_type("clearances") == "INT64"  # count
+    assert loader.bq_type("penalty_kicks_made") == "INT64"  # tally
+    assert loader.bq_type("std_xg") == "FLOAT64"  # total
+    assert loader.bq_type("save_pct") == "FLOAT64"  # pct
+    with pytest.raises(ValueError):
+        loader.bq_type("Player")  # identity columns are never new
+
+
 # --- load (fake client) ------------------------------------------------------
 
 class FakeJob:
@@ -705,6 +727,26 @@ def test_load_writes_only_v2_tables_and_views(frames):
     for sql in client.queries:
         assert sql.startswith("CREATE OR REPLACE VIEW")
         assert re.search(r"\.(outfield|goalkeeper)_all`", sql)
+
+
+def test_load_adds_columns_the_fbref_table_lacks_to_v2_and_null_casts_them(frames):
+    outfield, goalkeeper, _ = frames
+    # the live FBref tables lack two Hub columns: v2 gets them, the views null-cast them
+    live = {t: _live_schema(t) for t in ("outfield_features", "goalkeeper_features")}
+    live["outfield_features"] = [c for c in live["outfield_features"]
+                                 if c[0] not in ("clearances", "goals_minus_xg")]
+    client = FakeClient(live)
+    loader.load(outfield, goalkeeper, client)
+    _, frame, config = client.loads[0]
+    fields = {f.name: f.field_type for f in config.schema}
+    assert fields["clearances"] == "INT64" and fields["goals_minus_xg"] == "FLOAT64"
+    # after the live columns, in Hub column order
+    assert [f.name for f in config.schema][-3:] == ["goals_minus_xg", "clearances", "Source"]
+    assert str(frame["clearances"].dtype) == "Int64"
+    first, second = client.queries[0].split("UNION ALL")
+    assert "CAST(NULL AS INT64) AS clearances" in first
+    assert "CAST(NULL AS FLOAT64) AS goals_minus_xg" in first
+    assert "CAST(clearances AS INT64) AS clearances" in second
 
 
 # --- CLI ---------------------------------------------------------------------

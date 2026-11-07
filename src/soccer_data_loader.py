@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 from google.cloud import bigquery
 
-from src.ui.metrics import PER90_PAIRS
+from src.ui.metrics import KIND, PER90_PAIRS
 
 GCP_PROJECT = os.environ.get("GCP_PROJECT", "scouting-466001")
 BQ_DATASET = os.environ.get("BQ_DATASET", "scouting")
@@ -568,17 +568,31 @@ def _sql_type(field_type: str) -> str:
     return _SQL_TYPES.get(field_type.upper(), field_type.upper())
 
 
+def bq_type(column: str) -> str:
+    """BigQuery type of a Hub metric column the FBref tables lack: INT64 for
+    whole-number kinds (count, tally, minutes), FLOAT64 otherwise."""
+    kind = KIND.get(column)
+    if kind is None:
+        raise ValueError(f"{column} is not a metric column: the FBref table must have it")
+    return "INT64" if kind in ("count", "tally", "minutes") else "FLOAT64"
+
+
 def view_sql(table: str, fbref_columns: list[tuple[str, str]],
+             new_columns: list[tuple[str, str]] = (),
              project: str = GCP_PROJECT, dataset: str = BQ_DATASET) -> str:
     """CREATE OR REPLACE VIEW <table>'s union view: FBref rows plus v2 rows cast
-    to the FBref column types, each with a Source."""
+    to the FBref column types, each with a Source. `new_columns` (name, type) are
+    the v2 columns the FBref table lacks: NULL on the FBref side."""
     view, v2 = VIEWS[table], V2_TABLES[table]
-    bad = [name for name, _ in fbref_columns if not _IDENTIFIER.match(name)]
+    every = [*fbref_columns, *new_columns]
+    bad = [name for name, _ in every if not _IDENTIFIER.match(name)]
     if bad:
         raise ValueError(f"column names need quoting: {bad}")
-    old = ",\n    ".join(name for name, _ in fbref_columns)
+    old = ",\n    ".join([name for name, _ in fbref_columns]
+                         + [f"CAST(NULL AS {_sql_type(kind)}) AS {name}"
+                            for name, kind in new_columns])
     new = ",\n    ".join(f"CAST({name} AS {_sql_type(kind)}) AS {name}"
-                         for name, kind in fbref_columns)
+                         for name, kind in every)
     return (
         f"CREATE OR REPLACE VIEW `{project}.{dataset}.{view}` AS\n"
         f"SELECT\n    {old},\n    'FBref' AS Source\n"
@@ -618,15 +632,20 @@ def _coerce(frame: pd.DataFrame, columns: list[tuple[str, str]]) -> pd.DataFrame
 
 def load(outfield: pd.DataFrame, goalkeeper: pd.DataFrame, client,
          project: str = GCP_PROJECT, dataset: str = BQ_DATASET) -> dict[str, int]:
-    """WRITE_TRUNCATE both v2 tables (FBref column types plus Source STRING), then
-    create both union views. Returns rows written per v2 table."""
+    """WRITE_TRUNCATE both v2 tables, then create both union views. The v2 schema
+    is the FBref table's live columns and types, then the Hub columns the FBref
+    table lacks (newer sources only, typed by bq_type), then Source STRING.
+    Returns rows written per v2 table."""
     counts: dict[str, int] = {}
-    live_columns: dict[str, list[tuple[str, str]]] = {}
+    live_columns: dict[str, tuple[list[tuple[str, str]], list[tuple[str, str]]]] = {}
+    hub = {"outfield_features": OUTFIELD_COLUMNS, "goalkeeper_features": GOALKEEPER_COLUMNS}
     for table, frame in (("outfield_features", outfield), ("goalkeeper_features", goalkeeper)):
         live = [(f.name, f.field_type)
                 for f in client.get_table(f"{project}.{dataset}.{table}").schema]
-        live_columns[table] = live
-        columns = live + [("Source", "STRING")]
+        names = {name for name, _ in live}
+        new = [(col, bq_type(col)) for col in hub[table] if col not in names]
+        live_columns[table] = (live, new)
+        columns = live + new + [("Source", "STRING")]
         config = bigquery.LoadJobConfig(
             schema=[bigquery.SchemaField(name, kind) for name, kind in columns],
             write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
@@ -635,8 +654,8 @@ def load(outfield: pd.DataFrame, goalkeeper: pd.DataFrame, client,
         target = f"{project}.{dataset}.{V2_TABLES[table]}"
         client.load_table_from_dataframe(data, target, job_config=config).result()
         counts[V2_TABLES[table]] = len(data)
-    for table, live in live_columns.items():
-        client.query(view_sql(table, live, project, dataset)).result()
+    for table, (live, new) in live_columns.items():
+        client.query(view_sql(table, live, new, project, dataset)).result()
     return counts
 
 
