@@ -55,15 +55,20 @@ The app reads two BigQuery views, `outfield_all` and `goalkeeper_all`. Each one 
 
 European seasons are labelled `2025-2026` (shown as 2025-26) and US calendar seasons `2026`. The FBref part holds 16,532 player-seasons with 90+ minutes (15,184 outfield + 1,348 goalkeeper); 13,773 have 450+ minutes, the cut-off used for percentiles and similarity.
 
+**What the newer sources add.** Metrics FBref never had, empty for 2017-18 to 2023-24:
+
+- API-Football (all European leagues): appearances, starts, average match rating, duels and duels won %, dribbles attempted and completed, dribble success %, dribbled past, fouls drawn and committed, penalties won, conceded and missed, offsides.
+- Understat (Big 5): xG Chain and xG Buildup.
+- American Soccer Analysis (US leagues): goals added, in total, above average and by action (shooting, passing, receiving, dribbling, defending, fouling), passes completed over expected (total and per 100 passes), expected pass completion %, share of team touches, average pass distance and average vertical pass distance.
+
 **What the newer sources lack.** Stats a source doesn't have are left empty, never filled with zeros:
 
 - No progressive passing or carries after 2023-24, and none of FBref's other detailed passing, possession and defensive-action splits.
-- US leagues have no tackles or interceptions, and no goalkeeper stats (American Soccer Analysis keepers are not loaded).
+- US leagues have no tackles, interceptions, duels or dribbles, and no goalkeeper stats (American Soccer Analysis keepers are not loaded).
 - In Europe only the Big 5 have xG (from Understat); the other ten European leagues have none in 2024-25 or 2025-26.
-- API-Football rows have no pass completion %, though they have passes attempted and key passes.
-- Goalkeepers after 2023-24 have no clean sheets or penalty save %, so their similarity rests on save %, goals against per 90 and shots on target against.
+- Goalkeepers after 2023-24 have no penalty save %.
 
-The similarity model works on the stats a player-season has (see below), and the Stats tab simply shows fewer rows.
+Stats are grouped the same way for every season: Shooting, Chance creation, Passing, Possession and dribbling, Defending, Duels, Goals added, Discipline, Playing time and Goalkeeping. The similarity model and the Profile tab work on the stats a player-season has (see below), and the Stats tab simply shows the cards and rows it has.
 
 ---
 
@@ -86,7 +91,7 @@ The similarity model works on the stats a player-season has (see below), and the
 Defined in `src/similarity.py`. Uses cosine similarity on z-scored stats.
 
 1. Players are grouped into four pools by primary position: ATT, MID, DEF, GK
-2. Each pool has a curated feature template (15 stats for outfield, 5 for GK) mixing per-90 and rate metrics with a few season totals (key passes, progressive carries, passes into the box)
+2. Each pool has a curated feature template mixing per-90 and rate metrics with a few season totals (key passes, progressive carries, passes into the box): 15 FBref stats per outfield position plus 8 or 9 from the newer sources (dribbles, duels, xG Chain, goals added...), and for goalkeepers 5 plus match rating. The newer season totals (dribbles, fouls, xG Chain, goals added) are compared per 90 minutes; the FBref totals stay as the model has always used them
 3. Feature columns are z-scored across the pool so no single stat dominates by scale
 4. Cosine similarity is computed between the query player and every other player in the same pool
 5. Results are returned ranked by similarity score, filtered to players with ≥ 450 minutes
@@ -104,7 +109,7 @@ Only the template stats the query player has are used, and only players who have
 - Sidebar filters: season (or all seasons), league and club
 - Search for one player. Players with several seasons in view get a season switcher.
 - Identity card with headline numbers: goals, assists, xG and xAG, or save %, goals against per 90 and clean-sheet % for keepers. A chip names the data source.
-- **Profile**: percentile bars against the same position, season and league by default (450+ minutes), or against every league in the season via "Compare with", on a curated metric list per position. Stats that fewer than 80% of the chosen pool have are not drawn. Lower-is-better stats (errors, cards, goals against) are inverted. Counting stats are ranked per 90 minutes.
+- **Profile**: percentile bars against the same position, season and league by default (450+ minutes), or against every league in the season via "Compare with", on a curated metric list per position. Stats that fewer than 80% of the chosen pool have are not drawn. Lower-is-better stats (errors, cards, fouls committed, dribbled past, penalties conceded or missed, goals against) are inverted. Counting stats are ranked per 90 minutes.
 - **Stats**: every stat by category, with the season total next to per 90
 - **Similar players**: the similarity model's top matches. Select one to compare percentiles side by side and jump to their profile.
 
