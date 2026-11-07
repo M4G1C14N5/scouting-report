@@ -296,12 +296,12 @@ def test_more_minutes_no_longer_look_like_a_different_player():
 
 NEWER_FEATURES = {
     "ATT": {"dribbles_completed", "dribble_success_pct", "xg_chain", "fouls_drawn",
-            "duels_won_pct", "goals_added", "ga_shooting", "ga_receiving"},
+            "duels_won_pct", "ga_shooting", "ga_receiving"},
     "MID": {"xg_chain", "xg_buildup", "dribbles_completed", "duels_won_pct",
-            "passes_completed_over_expected_p100", "goals_added", "ga_passing",
+            "passes_completed_over_expected_p100", "ga_passing",
             "ga_interrupting"},
     "DEF": {"duels_won_pct", "dribbled_past", "fouls_committed", "xg_buildup",
-            "passes_completed_over_expected_p100", "goals_added", "ga_passing",
+            "passes_completed_over_expected_p100", "ga_passing",
             "ga_interrupting", "avg_pass_distance"},
     "GK": {"match_rating"},
 }
@@ -328,7 +328,7 @@ def test_every_season_total_in_a_template_is_compared_per_90():
         "clearances", "errors_leading_to_shot", "shots_on_target_against", "saves",
         # newer-source totals
         "dribbles_completed", "xg_chain", "xg_buildup", "fouls_drawn", "fouls_committed",
-        "dribbled_past", "goals_added", "ga_shooting", "ga_receiving", "ga_passing",
+        "dribbled_past", "ga_shooting", "ga_receiving", "ga_passing",
         "ga_interrupting"} == similarity.PER90_FEATURES
     # rates, percentages, distances and stored per-90 columns stay as they are
     assert not {"goals_per_90", "save_pct", "duels_won_pct", "goals_per_shot", "match_rating",
@@ -343,12 +343,12 @@ def test_goalkeeper_template_has_saves_and_match_rating():
 
 def test_with_per90_divides_the_season_totals_by_90s():
     pool = _pool([{"Player": "Q", "minutes": 900, "dribbles_completed": 10.0,
-                   "goals_added": 1.5, "key_passes": 20.0, "duels_won_pct": 55.0}])
-    out = similarity.with_per90(pool, ["dribbles_completed", "goals_added", "key_passes",
+                   "ga_shooting": 1.5, "key_passes": 20.0, "duels_won_pct": 55.0}])
+    out = similarity.with_per90(pool, ["dribbles_completed", "ga_shooting", "key_passes",
                                        "duels_won_pct", "not_in_pool"])
     row = out.iloc[0]
     assert row["dribbles_completed"] == pytest.approx(1.0)
-    assert row["goals_added"] == pytest.approx(0.15)
+    assert row["ga_shooting"] == pytest.approx(0.15)
     assert row["key_passes"] == pytest.approx(2.0)  # FBref totals too
     assert row["duels_won_pct"] == 55.0  # rates stay as they are
     assert pool.iloc[0]["dribbles_completed"] == 10.0  # the input is not changed
@@ -399,7 +399,7 @@ def _us_and_europe_pool() -> pd.DataFrame:
 @pytest.mark.parametrize("league, expected", [
     ("USL League One", {"goals_per_90", "xg_per_90", "goals_per_shot", "assists_per_90",
                         "xag_per_90", "key_passes", "shots_total_per_90",
-                        "passes_completion_pct_total", "goals_added", "ga_shooting",
+                        "passes_completion_pct_total", "ga_shooting",
                         "ga_receiving"}),
     ("League Two", {"goals_per_90", "goals_per_shot", "assists_per_90", "key_passes",
                     "shots_total_per_90", "passes_completion_pct_total", "dribbles_completed",
@@ -415,3 +415,15 @@ def test_each_era_uses_its_own_stats(league, expected):
     out = similarity.rank_similar(pool, f"{league} 0", "2025",
                                   similarity.FEATURE_TEMPLATES["ATT"], top_n=30)
     assert len(out) == 24 and set(out["League"]) == {league}
+
+
+def test_goals_added_counts_once_through_its_parts():
+    # the total is the sum of the parts: using both would weigh it twice
+    for group, template in similarity.FEATURE_TEMPLATES.items():
+        assert not {"goals_added", "goals_added_above_avg"} & set(template), group
+    assert {"ga_shooting", "ga_receiving"} <= set(similarity.FEATURE_TEMPLATES["ATT"])
+    assert {"ga_passing", "ga_interrupting"} <= set(similarity.FEATURE_TEMPLATES["MID"])
+    assert {"ga_passing", "ga_interrupting"} <= set(similarity.FEATURE_TEMPLATES["DEF"])
+    # still a Profile bar
+    for group in ("ATT", "MID", "DEF"):
+        assert "goals_added" in metrics.profile_keys(group), group
