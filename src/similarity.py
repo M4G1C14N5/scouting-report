@@ -147,12 +147,13 @@ FEATURE_TEMPLATES = {
         "goals_per_90",
         "assists_per_90",
         # Newer sources: duels, dribbled past and fouls (API-Football), build-up
-        # (Understat), passing over expected and goals added (ASA)
+        # (Understat), passing over expected and length, goals added (ASA)
         "duels_won_pct",
         "dribbled_past",
         "fouls_committed",
         "xg_buildup",
         "passes_completed_over_expected_p100",
+        "avg_pass_distance",
         "goals_added",
         "ga_interrupting",
         "ga_passing",

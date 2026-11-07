@@ -265,7 +265,7 @@ NEWER_FEATURES = {
             "ga_interrupting"},
     "DEF": {"duels_won_pct", "dribbled_past", "fouls_committed", "xg_buildup",
             "passes_completed_over_expected_p100", "goals_added", "ga_passing",
-            "ga_interrupting"},
+            "ga_interrupting", "avg_pass_distance"},
     "GK": {"match_rating"},
 }
 
