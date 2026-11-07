@@ -16,6 +16,7 @@ import pytest
 
 from src import similarity
 from tests import fakes
+from tests.schema_utils import newer_source_columns
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -165,12 +166,19 @@ def test_dropping_below_three_features_raises():
         similarity.select_features(pool, pool["Player"] == "P0", ["a", "b", "c"])
 
 
+def _fbref_part(group: str) -> list[str]:
+    """The template features FBref rows have (the newer-source ones are null)."""
+    table = "goalkeeper_features" if group == "GK" else "outfield_features"
+    newer = newer_source_columns(table)
+    return [c for c in similarity.FEATURE_TEMPLATES[group] if c not in newer]
+
+
 def test_small_pool_with_every_stat_keeps_every_feature():
     # Under 20 others, but dropping a stat could not add a candidate: keep them all.
     pool = fakes.position_pool("ATT", fakes.LATEST)
     features, candidates = similarity.select_features(
         pool, pool["Player"] == "Mohamed Salah", similarity.FEATURE_TEMPLATES["ATT"])
-    assert features == similarity.FEATURE_TEMPLATES["ATT"]
+    assert features == _fbref_part("ATT")
     assert int(candidates.sum()) == len(pool) - 1
 
 
@@ -240,8 +248,120 @@ def test_full_large_pool_ranks_exactly_as_before():
 @pytest.mark.parametrize("player, group", [("Mohamed Salah", "ATT"), ("Alisson", "GK")])
 def test_full_fbref_rows_rank_exactly_as_before(player, group):
     pool = fakes.position_pool(group, fakes.LATEST)
-    cols = similarity.FEATURE_TEMPLATES[group]
-    assert pool[cols].notna().all().all()  # every template stat present, as in FBref
+    cols = _fbref_part(group)
+    assert pool[cols].notna().all().all()  # every FBref template stat present, as in FBref
     bq = FakeBQ(pool, group)
     got = similarity.find_similar_players(player, fakes.LATEST, top_n=10, bq_client=bq)
     pd.testing.assert_frame_equal(got, _old_algorithm(pool, player, fakes.LATEST, cols, 10))
+
+
+# --- newer-source features ----------------------------------------------------
+
+NEWER_FEATURES = {
+    "ATT": {"dribbles_completed", "dribble_success_pct", "xg_chain", "fouls_drawn",
+            "duels_won_pct", "goals_added", "ga_shooting", "ga_receiving"},
+    "MID": {"xg_chain", "xg_buildup", "dribbles_completed", "duels_won_pct",
+            "passes_completed_over_expected_p100", "goals_added", "ga_passing",
+            "ga_interrupting"},
+    "DEF": {"duels_won_pct", "dribbled_past", "fouls_committed", "xg_buildup",
+            "passes_completed_over_expected_p100", "goals_added", "ga_passing",
+            "ga_interrupting"},
+    "GK": {"match_rating"},
+}
+
+
+def test_templates_add_the_newer_source_features_after_the_fbref_ones():
+    for group, newer in NEWER_FEATURES.items():
+        template = similarity.FEATURE_TEMPLATES[group]
+        assert set(template) - set(_fbref_part(group)) == newer, group
+        assert template[-len(newer):] == [c for c in template if c in newer], group
+        assert len(template) == len(set(template)), group
+
+
+def test_newer_season_totals_are_compared_per_90_and_the_fbref_ones_as_before():
+    assert similarity.PER90_FEATURES == {
+        "dribbles_completed", "xg_chain", "xg_buildup", "fouls_drawn", "fouls_committed",
+        "dribbled_past", "goals_added", "ga_shooting", "ga_receiving", "ga_passing",
+        "ga_interrupting"}
+    # the original model compared these season totals as they are: unchanged
+    assert similarity.SEASON_TOTAL_FEATURES == {
+        "key_passes", "passes_into_final_third", "passes_into_penalty_area",
+        "crosses_into_penalty_area", "progressive_carries", "progressive_passing_distance",
+        "pass_progressive_passes", "tackles_total", "tackles_won", "tackles_def_3rd",
+        "tackles_mid_3rd", "interceptions", "tackles_plus_interceptions", "blocks_total",
+        "clearances", "errors_leading_to_shot", "shots_on_target_against"}
+
+
+def test_with_per90_divides_only_the_newer_totals_by_90s():
+    pool = _pool([{"Player": "Q", "minutes": 900, "dribbles_completed": 10.0,
+                   "goals_added": 1.5, "key_passes": 20.0, "duels_won_pct": 55.0}])
+    out = similarity.with_per90(pool, ["dribbles_completed", "goals_added", "key_passes",
+                                       "duels_won_pct", "not_in_pool"])
+    row = out.iloc[0]
+    assert row["dribbles_completed"] == pytest.approx(1.0)
+    assert row["goals_added"] == pytest.approx(0.15)
+    assert row["key_passes"] == 20.0 and row["duels_won_pct"] == 55.0
+    assert pool.iloc[0]["dribbles_completed"] == 10.0  # the input is not changed
+
+
+def test_newer_counts_rank_per_90_not_by_season_total():
+    # R has Q's per-90 rates over twice the minutes; S has Q's season totals.
+    rows = [
+        {"Player": "Q", "minutes": 900, "dribbles_completed": 10.0, "fouls_drawn": 20.0,
+         "duels_won_pct": 50.0},
+        {"Player": "R", "minutes": 1800, "dribbles_completed": 20.0, "fouls_drawn": 40.0,
+         "duels_won_pct": 50.0},
+        {"Player": "S", "minutes": 1800, "dribbles_completed": 10.0, "fouls_drawn": 20.0,
+         "duels_won_pct": 50.0},
+        {"Player": "T", "minutes": 1800, "dribbles_completed": 60.0, "fouls_drawn": 10.0,
+         "duels_won_pct": 40.0},
+        {"Player": "U", "minutes": 900, "dribbles_completed": 2.0, "fouls_drawn": 30.0,
+         "duels_won_pct": 60.0},
+    ]
+    out = similarity.rank_similar(_pool(rows), "Q", "2025",
+                                  ["dribbles_completed", "fouls_drawn", "duels_won_pct"], top_n=4)
+    assert out["Player"].tolist()[0] == "R"
+    assert out.iloc[0]["similarity_score"] == pytest.approx(1.0, abs=1e-6)
+
+
+def _us_and_europe_pool() -> pd.DataFrame:
+    """2026-style US rows (ASA: xG and goals added, no duels or dribbles) and
+    2025-26-style League Two rows (API match data: duels and dribbles, no xG)."""
+    rng = np.random.default_rng(9)
+    template = similarity.FEATURE_TEMPLATES["ATT"]
+    asa = ["goals_per_90", "xg_per_90", "goals_per_shot", "assists_per_90", "xag_per_90",
+           "key_passes", "shots_total_per_90", "passes_completion_pct_total", "goals_added",
+           "ga_shooting", "ga_receiving"]
+    api = ["goals_per_90", "goals_per_shot", "assists_per_90", "key_passes",
+           "shots_total_per_90", "passes_completion_pct_total", "dribbles_completed",
+           "dribble_success_pct", "fouls_drawn", "duels_won_pct"]
+    rows = []
+    for league, have in (("USL League One", asa), ("League Two", api)):
+        for i in range(25):
+            rec = {c: np.nan for c in template}
+            rec.update({c: float(rng.uniform(0.1, 3.0)) for c in have})
+            rec.update(Player=f"{league} {i}", League=league, Squad=f"Club {i}",
+                       minutes=float(rng.integers(450, 3000)))
+            rows.append(rec)
+    return _pool(rows)
+
+
+@pytest.mark.parametrize("league, expected", [
+    ("USL League One", {"goals_per_90", "xg_per_90", "goals_per_shot", "assists_per_90",
+                        "xag_per_90", "key_passes", "shots_total_per_90",
+                        "passes_completion_pct_total", "goals_added", "ga_shooting",
+                        "ga_receiving"}),
+    ("League Two", {"goals_per_90", "goals_per_shot", "assists_per_90", "key_passes",
+                    "shots_total_per_90", "passes_completion_pct_total", "dribbles_completed",
+                    "dribble_success_pct", "fouls_drawn", "duels_won_pct"}),
+])
+def test_each_era_uses_its_own_stats(league, expected):
+    pool = _us_and_europe_pool()
+    query = pool["Player"] == f"{league} 0"
+    features, candidates = similarity.select_features(
+        pool, query, similarity.FEATURE_TEMPLATES["ATT"])
+    assert set(features) == expected and len(features) >= 8
+    assert set(pool.loc[candidates, "League"]) == {league}
+    out = similarity.rank_similar(pool, f"{league} 0", "2025",
+                                  similarity.FEATURE_TEMPLATES["ATT"], top_n=30)
+    assert len(out) == 24 and set(out["League"]) == {league}

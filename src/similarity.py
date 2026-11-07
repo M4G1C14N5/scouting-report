@@ -27,12 +27,23 @@ Position feature templates
 Each template is a curated list of per-90 and rate stats relevant to
 that position group. Raw counting stats are excluded — they favour
 players with more minutes.
+
+The original FBref features come first; the newer-source features
+(API-Football duels and dribbles, Understat xG Chain, ASA goals added)
+follow. A season has only its own sources' stats, so step 3 picks the
+right set for each era on its own. The newer season totals (dribbles,
+fouls, xG Chain, goals added...) are compared per 90 minutes
+(PER90_FEATURES); the original FBref totals (key passes, tackles...) stay
+season totals, exactly as the model has always compared them
+(SEASON_TOTAL_FEATURES).
 """
 
 import os
 import numpy as np
 import pandas as pd
 from google.cloud import bigquery
+
+from src.ui.metrics import KIND, PER90_COMPUTED_KINDS
 
 GCP_PROJECT = os.environ.get("GCP_PROJECT", "scouting-466001")
 BQ_DATASET  = os.environ.get("BQ_DATASET", "scouting")
@@ -77,6 +88,16 @@ FEATURE_TEMPLATES = {
         "shots_total_per_90",
         "passes_completion_pct_total",
         "npxg_plus_xag_per_90",
+        # Newer sources: dribbling and duels (API-Football), xG Chain (Understat),
+        # goals added (ASA)
+        "dribbles_completed",
+        "dribble_success_pct",
+        "fouls_drawn",
+        "duels_won_pct",
+        "xg_chain",
+        "goals_added",
+        "ga_shooting",
+        "ga_receiving",
     ],
     "MID": [
         # Progression & dribbling (heavily weighted — defines midfielder style)
@@ -98,6 +119,16 @@ FEATURE_TEMPLATES = {
         # Defending
         "tackles_plus_interceptions",
         "interceptions",
+        # Newer sources: build-up and creation (Understat), carrying and duels
+        # (API-Football), passing over expected and goals added (ASA)
+        "xg_chain",
+        "xg_buildup",
+        "dribbles_completed",
+        "duels_won_pct",
+        "passes_completed_over_expected_p100",
+        "goals_added",
+        "ga_passing",
+        "ga_interrupting",
     ],
     "DEF": [
         "tackles_total",
@@ -115,6 +146,16 @@ FEATURE_TEMPLATES = {
         "passes_into_final_third",
         "goals_per_90",
         "assists_per_90",
+        # Newer sources: duels, dribbled past and fouls (API-Football), build-up
+        # (Understat), passing over expected and goals added (ASA)
+        "duels_won_pct",
+        "dribbled_past",
+        "fouls_committed",
+        "xg_buildup",
+        "passes_completed_over_expected_p100",
+        "goals_added",
+        "ga_interrupting",
+        "ga_passing",
     ],
     "GK": [
         "save_pct",
@@ -122,8 +163,27 @@ FEATURE_TEMPLATES = {
         "clean_sheet_pct",
         "pk_save_pct",
         "shots_on_target_against",
+        # Newer sources: average API-Football match rating
+        "match_rating",
     ],
 }
+
+# Season totals in the original templates, compared as totals exactly as the
+# model always has (every pool player has 450+ minutes in the same season).
+SEASON_TOTAL_FEATURES = frozenset({
+    "key_passes", "passes_into_final_third", "passes_into_penalty_area",
+    "crosses_into_penalty_area", "progressive_carries", "progressive_passing_distance",
+    "pass_progressive_passes", "tackles_total", "tackles_won", "tackles_def_3rd",
+    "tackles_mid_3rd", "interceptions", "tackles_plus_interceptions", "blocks_total",
+    "clearances", "errors_leading_to_shot", "shots_on_target_against",
+})
+
+# Every other season total in a template (the newer-source counts and goals
+# added) is compared per 90 minutes, as the Profile tab ranks it.
+PER90_FEATURES = frozenset(
+    c for template in FEATURE_TEMPLATES.values() for c in template
+    if KIND.get(c) in PER90_COMPUTED_KINDS and c not in SEASON_TOTAL_FEATURES
+)
 
 
 def table_ref(table: str) -> str:
@@ -162,6 +222,18 @@ def _cosine_similarity(query_vec: np.ndarray, matrix: np.ndarray) -> np.ndarray:
     query_norm = query_vec / (np.linalg.norm(query_vec) + 1e-9)
     norms      = np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-9
     return (matrix / norms) @ query_norm
+
+
+def with_per90(pool_df: pd.DataFrame, template: list[str]) -> pd.DataFrame:
+    """A copy of the pool with the template's PER90_FEATURES divided by 90s
+    played (minutes / 90). Null when minutes are missing or zero."""
+    out = pool_df.copy()
+    nineties = pd.to_numeric(out["minutes"], errors="coerce") / 90
+    nineties = nineties.where(nineties > 0)
+    for c in template:
+        if c in PER90_FEATURES and c in out.columns:
+            out[c] = pd.to_numeric(out[c], errors="coerce") / nineties
+    return out
 
 
 def player_features(pool_df: pd.DataFrame, query_row, template: list[str]) -> list[str]:
@@ -206,11 +278,12 @@ def rank_similar(
     template: list[str],
     top_n: int,
 ) -> pd.DataFrame:
-    """Steps 3-6 on a fetched pool: select the features and candidates,
-    z-score over the candidates and the query player, cosine, top N. Raises
+    """Steps 3-6 on a fetched pool: the newer season totals per 90 (with_per90),
+    select the features and candidates, z-score over the candidates and the
+    query player, cosine, top N. Raises
     NotEnoughStatsError (see select_features). With every stat present for
     every row this is exactly the original full-template ranking."""
-    pool_reset = pool_df.reset_index(drop=True)
+    pool_reset = with_per90(pool_df.reset_index(drop=True), template)
     query_mask = (pool_reset["Player"] == player) & (pool_reset["Season"] == season)
     feature_cols, candidates = select_features(pool_reset, query_mask, template)
 
