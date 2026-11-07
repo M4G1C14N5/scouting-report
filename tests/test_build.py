@@ -171,6 +171,29 @@ def test_coverage_counts_missing_values_not_zero_minutes_rows():
     assert [r.key for r in rows["Defending"]] == ["tackles_total"]
 
 
+def test_profile_rows_for_a_newer_source_defender():
+    # API-Football style rows: no FBref tackle splits, but duels, dribbled past, fouls
+    pool = pd.DataFrame({
+        "Player": ["A", "B", "C", "D"],
+        "nineties_played": [10.0, 20.0, 10.0, 10.0],
+        "dribbled_past": [5, 20, 15, 20],      # per 90: 0.5, 1.0, 1.5, 2.0
+        "fouls_committed": [10, 10, 20, 30],   # per 90: 1.0, 0.5, 2.0, 3.0
+        "duels_won_pct": [60.0, 55.0, 50.0, 45.0],
+        "goals_added": [1.0, 1.0, 0.5, 0.2],
+    })
+    rows = build.profile_rows(pool, pool.iloc[0], "DEF")
+    assert list(rows) == ["Defending", "Duels", "Goals added", "Discipline"]
+    past = rows["Defending"][0]
+    assert (past.key, past.label, past.text) == ("dribbled_past", "Dribbled Past / 90", "0.50")
+    assert past.pct == 87.5  # dribbled past least often: best
+    fouls = rows["Discipline"][0]
+    assert fouls.label == "Fouls Committed / 90" and fouls.pct == 62.5  # second fewest per 90
+    duels = rows["Duels"][0]
+    assert (duels.label, duels.text, duels.pct) == ("Duels Won %", "60.0%", 87.5)
+    added = rows["Goals added"][0]
+    assert (added.label, added.value) == ("Goals Added / 90", 0.1)
+
+
 def test_profile_row_labels_never_double_the_per_90_suffix():
     pool = _def_pool()
     for rows in build.profile_rows(pool, pool.iloc[3], "DEF").values():

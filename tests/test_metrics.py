@@ -110,10 +110,27 @@ def test_profile_metrics_cover_the_similarity_templates():
 
 def test_profile_metric_counts_and_no_duplicates():
     counts = {g: len(metrics.profile_keys(g)) for g in metrics.PROFILE_METRICS}
-    assert counts == {"ATT": 18, "MID": 16, "DEF": 15, "GK": 7}
+    assert counts == {"ATT": 26, "MID": 24, "DEF": 23, "GK": 8}
     for group in metrics.PROFILE_METRICS:
         keys = metrics.profile_keys(group)
         assert len(keys) == len(set(keys)), group
+
+
+def test_profiles_carry_the_newer_source_metrics():
+    newer = {
+        "ATT": {"dribbles_completed", "dribble_success_pct", "xg_chain", "fouls_drawn",
+                "duels_won_pct", "goals_added", "ga_shooting", "ga_receiving"},
+        "MID": {"xg_chain", "xg_buildup", "dribbles_completed", "duels_won_pct",
+                "passes_completed_over_expected_p100", "goals_added", "ga_passing",
+                "ga_interrupting"},
+        "DEF": {"duels_won_pct", "dribbled_past", "fouls_committed", "xg_buildup",
+                "passes_completed_over_expected_p100", "ga_interrupting", "ga_passing",
+                "goals_added"},
+        "GK": {"match_rating"},
+    }
+    for group, keys in newer.items():
+        assert set(metrics.profile_keys(group)) & set(NEWER) == keys, group
+    assert {"dribbled_past", "fouls_committed"} <= metrics.LOWER_IS_BETTER
 
 
 def test_profile_categories_are_known_categories():
@@ -122,8 +139,9 @@ def test_profile_categories_are_known_categories():
 
 
 def test_profile_cards_follow_the_category_order_and_each_metric_its_category():
+    # the Stats tab's card order (goalkeepers: Goalkeeping first)
     for group, categories in metrics.PROFILE_METRICS.items():
-        order = [metrics.CATEGORY_ORDER.index(c) for c in categories]
+        order = [metrics.stats_categories(group).index(c) for c in categories]
         assert order == sorted(order), group
         for category, keys in categories.items():
             wrong = [k for k in keys if metrics.STAT_CATEGORIES[k] != category]

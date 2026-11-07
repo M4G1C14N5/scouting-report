@@ -184,38 +184,52 @@ PER90_PAIRS = {
 
 # Profile tab: FEATURE_TEMPLATES (src/similarity.py) plus the SQL percentile
 # views (schema.sql), grouped by category, in CATEGORY_ORDER (card order).
+# FBref seasons fill the FBref metrics and the newer sources their own; the
+# Profile tab hides a metric most of the chosen pool lacks, so each era shows
+# the bars it has.
 PROFILE_METRICS: dict[str, dict[str, tuple[str, ...]]] = {
     "ATT": {
         "Shooting": ("goals_per_90", "nonpen_goals_per_90", "xg_per_90", "npxg_per_90",
                      "npxg_plus_xag_per_90", "shots_total_per_90", "shots_on_target_per_90",
                      "goals_per_shot", "npxg_per_shot"),
         "Chance creation": ("assists_per_90", "xag_per_90", "key_passes",
-                            "passes_into_penalty_area", "crosses_into_penalty_area"),
+                            "passes_into_penalty_area", "crosses_into_penalty_area", "xg_chain"),
         "Passing": ("passes_completion_pct_total", "passes_into_final_third",
                     "progressive_passing_distance"),
-        "Possession and dribbling": ("progressive_carries",),
+        "Possession and dribbling": ("progressive_carries", "dribbles_completed",
+                                     "dribble_success_pct", "fouls_drawn"),
+        "Duels": ("duels_won_pct",),
+        "Goals added": ("goals_added", "ga_shooting", "ga_receiving"),
     },
     "MID": {
         "Shooting": ("goals_per_90", "npxg_per_90", "shots_total_per_90"),
         "Chance creation": ("assists_per_90", "xag_per_90", "key_passes",
-                            "passes_into_penalty_area", "crosses_into_penalty_area"),
+                            "passes_into_penalty_area", "crosses_into_penalty_area", "xg_chain",
+                            "xg_buildup"),
         "Passing": ("passes_completion_pct_total", "pass_progressive_passes",
-                    "progressive_passing_distance", "passes_into_final_third"),
-        "Possession and dribbling": ("progressive_carries",),
+                    "progressive_passing_distance", "passes_into_final_third",
+                    "passes_completed_over_expected_p100"),
+        "Possession and dribbling": ("progressive_carries", "dribbles_completed"),
         "Defending": ("tackles_total", "interceptions", "tackles_plus_interceptions"),
+        "Duels": ("duels_won_pct",),
+        "Goals added": ("goals_added", "ga_passing", "ga_interrupting"),
     },
     "DEF": {
         "Shooting": ("goals_per_90",),
-        "Chance creation": ("assists_per_90",),
+        "Chance creation": ("assists_per_90", "xg_buildup"),
         "Passing": ("passes_completion_pct_total", "progressive_passing_distance",
-                    "passes_into_final_third"),
+                    "passes_into_final_third", "passes_completed_over_expected_p100"),
         "Defending": ("tackles_total", "tackles_won", "tackles_def_3rd", "tackles_mid_3rd",
                       "dribblers_tackled_pct", "interceptions", "tackles_plus_interceptions",
-                      "blocks_total", "clearances", "errors_leading_to_shot"),
+                      "blocks_total", "clearances", "errors_leading_to_shot", "dribbled_past"),
+        "Duels": ("duels_won_pct",),
+        "Goals added": ("goals_added", "ga_interrupting", "ga_passing"),
+        "Discipline": ("fouls_committed",),
     },
     "GK": {
         "Goalkeeping": ("save_pct", "goals_against_per_90", "clean_sheet_pct", "clean_sheets",
                         "pk_save_pct", "saves", "shots_on_target_against"),
+        "Playing time": ("match_rating",),
     },
 }
 
