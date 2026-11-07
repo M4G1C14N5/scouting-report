@@ -164,6 +164,7 @@ FEATURE_TEMPLATES = {
         "clean_sheet_pct",
         "pk_save_pct",
         "shots_on_target_against",
+        "saves",
         # Newer sources: average API-Football match rating
         "match_rating",
     ],
