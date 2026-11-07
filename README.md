@@ -91,12 +91,12 @@ Stats are grouped the same way for every season: Shooting, Chance creation, Pass
 Defined in `src/similarity.py`. Uses cosine similarity on z-scored stats.
 
 1. Players are grouped into four pools by primary position: ATT, MID, DEF, GK
-2. Each pool has a curated feature template mixing per-90 and rate metrics with a few season totals (key passes, progressive carries, passes into the box): 15 FBref stats per outfield position plus 8 or 9 from the newer sources (dribbles, duels, xG Chain, goals added...), and for goalkeepers 5 plus match rating. The newer season totals (dribbles, fouls, xG Chain, goals added) are compared per 90 minutes; the FBref totals stay as the model has always used them
+2. Each pool has a curated feature template of per-90, rate and season-total stats: 15 FBref stats per outfield position plus 8 or 9 from the newer sources (dribbles, duels, xG Chain, goals added...), and for goalkeepers 5 plus match rating. Every season total (key passes, progressive carries, tackles, passes into the box, dribbles, xG Chain, goals added...) is divided by 90s played first, so players with more minutes are not favoured. Rates and percentages are used as they are. Earlier versions compared the FBref totals as raw season totals, so FBref similarity results changed with this switch
 3. Feature columns are z-scored across the pool so no single stat dominates by scale
 4. Cosine similarity is computed between the query player and every other player in the same pool
 5. Results are returned ranked by similarity score, filtered to players with ≥ 450 minutes
 
-Only the template stats the query player has are used, and only players who have every one of those stats are compared: a Premier League striker with xG is matched with other players who have xG, while a Championship striker without it is matched on the stats both have. If fewer than 20 players qualify, the stat the pool has least often is dropped and the search repeats. With fewer than 3 stats left the Similar tab says "Not enough comparable stats for this player in this season" instead of ranking. FBref rows, which have every template stat, rank exactly as before.
+Only the template stats the query player has are used, and only players who have every one of those stats are compared: a Premier League striker with xG is matched with other players who have xG, while a Championship striker without it is matched on the stats both have. If fewer than 20 players qualify, the stat the pool has least often is dropped and the search repeats. With fewer than 3 stats left the Similar tab says "Not enough comparable stats for this player in this season" instead of ranking. FBref rows have every FBref template stat, so they are always compared on all of them.
 
 **Known limitation:** With FBref data, goals and assists naturally carry high signal weight. More granular tracking data (pressing, spatial, ball retention) would improve result quality.
 

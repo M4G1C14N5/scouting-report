@@ -15,6 +15,7 @@ import pandas as pd
 import pytest
 
 from src import similarity
+from src.ui import metrics
 from tests import fakes
 from tests.schema_utils import newer_source_columns
 
@@ -220,7 +221,7 @@ def test_find_similar_players_raises_not_enough_stats_through_bigquery_path():
         similarity.find_similar_players("Q", "2025", bq_client=bq)
 
 
-# --- FBref behaviour unchanged ------------------------------------------------
+# --- ranking -------------------------------------------------------------------
 
 def _old_algorithm(pool: pd.DataFrame, player: str, season: str, cols: list[str], top_n: int) -> pd.DataFrame:
     """The pre-refresh steps 4-6 of find_similar_players, verbatim in effect."""
@@ -236,7 +237,8 @@ def _old_algorithm(pool: pd.DataFrame, player: str, season: str, cols: list[str]
             .reset_index(drop=True))
 
 
-def test_full_large_pool_ranks_exactly_as_before():
+def test_full_large_pool_with_equal_minutes_ranks_exactly_as_before():
+    # every row has the same minutes, so per 90 is a constant scale: z-scores unchanged
     rng = np.random.default_rng(5)
     cols = similarity.FEATURE_TEMPLATES["MID"]
     pool = _pool([{"Player": f"M{i}", "position_group": "MID", **{c: float(rng.normal()) for c in cols}}
@@ -245,14 +247,49 @@ def test_full_large_pool_ranks_exactly_as_before():
     pd.testing.assert_frame_equal(got, _old_algorithm(pool, "M7", "2021-2022", cols, 20))
 
 
+def _per_90_by_hand(pool: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """Season totals (count, total, tally) divided by minutes / 90; rates as they are."""
+    out = pool.copy()
+    for c in cols:
+        if metrics.KIND[c] in ("count", "total", "tally"):
+            out[c] = out[c] / (out["minutes"] / 90)
+    return out
+
+
 @pytest.mark.parametrize("player, group", [("Mohamed Salah", "ATT"), ("Alisson", "GK")])
-def test_full_fbref_rows_rank_exactly_as_before(player, group):
+def test_full_fbref_rows_rank_on_per_90_totals(player, group):
+    # The original algorithm on the FBref template stats, with every season total
+    # (key passes, tackles, saves...) turned into a per-90 rate first.
     pool = fakes.position_pool(group, fakes.LATEST)
     cols = _fbref_part(group)
     assert pool[cols].notna().all().all()  # every FBref template stat present, as in FBref
     bq = FakeBQ(pool, group)
     got = similarity.find_similar_players(player, fakes.LATEST, top_n=10, bq_client=bq)
-    pd.testing.assert_frame_equal(got, _old_algorithm(pool, player, fakes.LATEST, cols, 10))
+    expected = _old_algorithm(_per_90_by_hand(pool, cols), player, fakes.LATEST, cols, 10)
+    expected["minutes"] = expected["minutes"].astype(got["minutes"].dtype)
+    pd.testing.assert_frame_equal(got, expected)
+
+
+def test_more_minutes_no_longer_look_like_a_different_player():
+    # FBref style: R has Q's key passes, carries and tackles per 90 over twice the
+    # minutes, S has Q's season totals. Per 90, R is Q's twin.
+    rows = [
+        {"Player": "Q", "minutes": 900, "key_passes": 10.0, "progressive_carries": 20.0,
+         "tackles_total": 15.0, "passes_completion_pct_total": 80.0},
+        {"Player": "R", "minutes": 1800, "key_passes": 20.0, "progressive_carries": 40.0,
+         "tackles_total": 30.0, "passes_completion_pct_total": 80.0},
+        {"Player": "S", "minutes": 1800, "key_passes": 10.0, "progressive_carries": 20.0,
+         "tackles_total": 15.0, "passes_completion_pct_total": 80.0},
+        {"Player": "T", "minutes": 2700, "key_passes": 60.0, "progressive_carries": 15.0,
+         "tackles_total": 90.0, "passes_completion_pct_total": 70.0},
+        {"Player": "U", "minutes": 900, "key_passes": 2.0, "progressive_carries": 40.0,
+         "tackles_total": 5.0, "passes_completion_pct_total": 88.0},
+    ]
+    template = ["key_passes", "progressive_carries", "tackles_total",
+                "passes_completion_pct_total"]
+    out = similarity.rank_similar(_pool(rows), "Q", "2025", template, top_n=4)
+    assert out["Player"].tolist()[0] == "R"
+    assert out.iloc[0]["similarity_score"] == pytest.approx(1.0, abs=1e-6)
 
 
 # --- newer-source features ----------------------------------------------------
@@ -278,21 +315,28 @@ def test_templates_add_the_newer_source_features_after_the_fbref_ones():
         assert len(template) == len(set(template)), group
 
 
-def test_newer_season_totals_are_compared_per_90_and_the_fbref_ones_as_before():
+def test_every_season_total_in_a_template_is_compared_per_90():
+    in_templates = {c for t in similarity.FEATURE_TEMPLATES.values() for c in t}
     assert similarity.PER90_FEATURES == {
-        "dribbles_completed", "xg_chain", "xg_buildup", "fouls_drawn", "fouls_committed",
-        "dribbled_past", "goals_added", "ga_shooting", "ga_receiving", "ga_passing",
-        "ga_interrupting"}
-    # the original model compared these season totals as they are: unchanged
-    assert similarity.SEASON_TOTAL_FEATURES == {
+        c for c in in_templates if metrics.KIND[c] in ("count", "total", "tally")}
+    assert {
+        # FBref totals, compared as totals before
         "key_passes", "passes_into_final_third", "passes_into_penalty_area",
         "crosses_into_penalty_area", "progressive_carries", "progressive_passing_distance",
         "pass_progressive_passes", "tackles_total", "tackles_won", "tackles_def_3rd",
         "tackles_mid_3rd", "interceptions", "tackles_plus_interceptions", "blocks_total",
-        "clearances", "errors_leading_to_shot", "shots_on_target_against"}
+        "clearances", "errors_leading_to_shot", "shots_on_target_against",
+        # newer-source totals
+        "dribbles_completed", "xg_chain", "xg_buildup", "fouls_drawn", "fouls_committed",
+        "dribbled_past", "goals_added", "ga_shooting", "ga_receiving", "ga_passing",
+        "ga_interrupting"} == similarity.PER90_FEATURES
+    # rates, percentages, distances and stored per-90 columns stay as they are
+    assert not {"goals_per_90", "save_pct", "duels_won_pct", "goals_per_shot", "match_rating",
+                "avg_pass_distance", "passes_completed_over_expected_p100"} & (
+        similarity.PER90_FEATURES)
 
 
-def test_with_per90_divides_only_the_newer_totals_by_90s():
+def test_with_per90_divides_the_season_totals_by_90s():
     pool = _pool([{"Player": "Q", "minutes": 900, "dribbles_completed": 10.0,
                    "goals_added": 1.5, "key_passes": 20.0, "duels_won_pct": 55.0}])
     out = similarity.with_per90(pool, ["dribbles_completed", "goals_added", "key_passes",
@@ -300,7 +344,8 @@ def test_with_per90_divides_only_the_newer_totals_by_90s():
     row = out.iloc[0]
     assert row["dribbles_completed"] == pytest.approx(1.0)
     assert row["goals_added"] == pytest.approx(0.15)
-    assert row["key_passes"] == 20.0 and row["duels_won_pct"] == 55.0
+    assert row["key_passes"] == pytest.approx(2.0)  # FBref totals too
+    assert row["duels_won_pct"] == 55.0  # rates stay as they are
     assert pool.iloc[0]["dribbles_completed"] == 10.0  # the input is not changed
 
 

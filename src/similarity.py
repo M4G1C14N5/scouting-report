@@ -24,18 +24,18 @@ How it works
 
 Position feature templates
 --------------------------
-Each template is a curated list of per-90 and rate stats relevant to
-that position group. Raw counting stats are excluded — they favour
-players with more minutes.
+Each template is a curated list of stats relevant to that position group:
+stored per-90 columns, rates and percentages, and season totals. Every
+season total (key passes, tackles, saves, dribbles, xG Chain, goals
+added...: PER90_FEATURES) is divided by 90s played before step 4, so a
+player with more minutes is not favoured. Earlier versions compared the
+FBref totals (key passes, progressive carries, tackles...) as raw season
+totals, so FBref results changed when they moved to per 90.
 
 The original FBref features come first; the newer-source features
 (API-Football duels and dribbles, Understat xG Chain, ASA goals added)
 follow. A season has only its own sources' stats, so step 3 picks the
-right set for each era on its own. The newer season totals (dribbles,
-fouls, xG Chain, goals added...) are compared per 90 minutes
-(PER90_FEATURES); the original FBref totals (key passes, tackles...) stay
-season totals, exactly as the model has always compared them
-(SEASON_TOTAL_FEATURES).
+right set for each era on its own.
 """
 
 import os
@@ -43,7 +43,7 @@ import numpy as np
 import pandas as pd
 from google.cloud import bigquery
 
-from src.ui.metrics import KIND, PER90_COMPUTED_KINDS
+from src.ui.metrics import KIND
 
 GCP_PROJECT = os.environ.get("GCP_PROJECT", "scouting-466001")
 BQ_DATASET  = os.environ.get("BQ_DATASET", "scouting")
@@ -169,21 +169,16 @@ FEATURE_TEMPLATES = {
     ],
 }
 
-# Season totals in the original templates, compared as totals exactly as the
-# model always has (every pool player has 450+ minutes in the same season).
-SEASON_TOTAL_FEATURES = frozenset({
-    "key_passes", "passes_into_final_third", "passes_into_penalty_area",
-    "crosses_into_penalty_area", "progressive_carries", "progressive_passing_distance",
-    "pass_progressive_passes", "tackles_total", "tackles_won", "tackles_def_3rd",
-    "tackles_mid_3rd", "interceptions", "tackles_plus_interceptions", "blocks_total",
-    "clearances", "errors_leading_to_shot", "shots_on_target_against",
-})
+# Metric kinds stored as season totals (src/ui/metrics.py). Similarity compares
+# them per 90 minutes, so a player with more minutes does not look different.
+SEASON_TOTAL_KINDS = frozenset({"count", "total", "tally"})
 
-# Every other season total in a template (the newer-source counts and goals
-# added) is compared per 90 minutes, as the Profile tab ranks it.
+# Every season total in a template (key passes, tackles, saves, dribbles,
+# xG Chain, goals added...). Rates, percentages, distances and the stored
+# per-90 columns are compared as they are.
 PER90_FEATURES = frozenset(
     c for template in FEATURE_TEMPLATES.values() for c in template
-    if KIND.get(c) in PER90_COMPUTED_KINDS and c not in SEASON_TOTAL_FEATURES
+    if KIND.get(c) in SEASON_TOTAL_KINDS
 )
 
 
@@ -279,7 +274,7 @@ def rank_similar(
     template: list[str],
     top_n: int,
 ) -> pd.DataFrame:
-    """Steps 3-6 on a fetched pool: the newer season totals per 90 (with_per90),
+    """Steps 3-6 on a fetched pool: the season totals per 90 (with_per90),
     select the features and candidates, z-score over the candidates and the
     query player, cosine, top N. Raises
     NotEnoughStatsError (see select_features). With every stat present for
