@@ -32,6 +32,10 @@ MART_COLUMNS = [
     "goals_added_raw", "goals_added_above_avg", "ga_dribbling", "ga_fouling",
     "ga_interrupting", "ga_passing", "ga_receiving", "ga_shooting", "rebuilt_from_matches",
     "position_source", "clean_sheets", "gk_starts", "wins", "draws", "losses",
+    # added to the mart for the newer-source metrics
+    "dribbled_past", "penalties_won", "penalties_conceded", "penalties_missed", "offsides",
+    "xg_chain", "xg_buildup", "xpass_completion_pct", "passes_completed_over_expected",
+    "avg_pass_distance_yds", "avg_vertical_distance_yds",
 ]
 
 
@@ -50,26 +54,38 @@ ROWS = [
     _row(source="asa", league_code="MLS", season_label="2025", player_name="Carlos Striker",
          birth_date=_born("2000-03-02"), nationality="USA", team="Austin FC",
          position_group="ATT", minutes=1800, goals=10, assists=4, shots=50, shots_on_target=20,
-         key_passes=30, passes=600, pass_completion_pct=75.5, xg=8.0, xa=3.0),
+         key_passes=30, passes=600, pass_completion_pct=75.5, xg=8.0, xa=3.0,
+         appearances=22, goals_added_raw=2.5, goals_added_above_avg=0.8, ga_dribbling=0.1,
+         ga_fouling=-0.05, ga_interrupting=0.15, ga_passing=0.4, ga_receiving=0.7,
+         ga_shooting=1.2, passes_completed_over_expected=12.3,
+         passes_completed_over_expected_p100=2.05, xpass_completion_pct=78.4,
+         share_team_touches=0.045, avg_pass_distance_yds=15.2, avg_vertical_distance_yds=4.1),
     # API-Football + Understat midfielder
     _row(source="apif", league_code="ENG1", season_label="2025-2026",
          player_name="Midfield Maestro", birth_date=_born("2001-08-01"), nationality="England",
          team="Arsenal", position_group="MID", minutes=2700, goals=6, assists=8,
          penalties_scored=2, shots=30, shots_on_target=12, key_passes=60, passes=2000,
          tackles=50, interceptions=30, blocks=10, yellow_cards=5, red_cards=0,
-         saves=0, goals_conceded=0, xg=4.5, npxg=3.0, xa=6.0),
+         saves=0, goals_conceded=0, xg=4.5, npxg=3.0, xa=6.0,
+         appearances=30, starts=28, rating=7.234, duels=200, duels_won=110,
+         dribbles_attempted=40, dribbles_won=25, dribbled_past=15, fouls_drawn=30,
+         fouls_committed=20, penalties_won=2, penalties_conceded=1, penalties_missed=1,
+         offsides=3, xg_chain=12.5, xg_buildup=6.25),
     # apif_matches League Two defender: no birth date, nationality or xG; zero shots
     _row(source="apif_matches", league_code="ENG4", season_label="2024-2025",
          player_name="Lower Defender", team="Walsall", position_group="DEF", minutes=900,
          goals=0, assists=1, penalties_scored=0, shots=0, shots_on_target=0, key_passes=3,
          passes=400, pass_completion_pct=81.5, tackles=30, interceptions=20, blocks=5,
-         yellow_cards=2, red_cards=1),
+         yellow_cards=2, red_cards=1, appearances=10, starts=10, rating=6.5, duels=0,
+         duels_won=0, dribbles_attempted=0, dribbles_won=0, dribbled_past=4, fouls_drawn=2,
+         fouls_committed=9, penalties_won=0, penalties_conceded=0, penalties_missed=0,
+         offsides=0),
     # API-Football keeper
     _row(source="apif", league_code="ESP1", season_label="2024-2025", player_name="Keeper One",
          birth_date=_born("1995-01-15"), nationality="Spain", team="Getafe",
          position_group="GK", minutes=1800, saves=60, goals_conceded=20, penalties_saved=1,
          goals=0, assists=0, shots=0, clean_sheets=8, gk_starts=20, wins=10, draws=5,
-         losses=5),
+         losses=5, appearances=21, starts=20, rating=6.876),
     # ASA keeper: dropped (ASA has no keeper stats)
     _row(source="asa", league_code="MLS", season_label="2024", player_name="Asa Keeper",
          team="LA Galaxy", position_group="GK", minutes=2000, goals=0, xg=0.0),
@@ -322,13 +338,101 @@ def test_unmapped_metrics_are_null(frames):
         "interceptions", "tackles_plus_interceptions",
         "goals_against", "goals_against_per_90", "shots_on_target_against", "saves",
         "save_pct", "penalty_kicks_saved", "clean_sheets", "clean_sheet_pct", "wins", "draws",
-        "losses",
+        "losses", *NEWER_MAPPED,
     }
     for frame in (outfield, goalkeeper):
         for col in frame.columns:
             if col in mapped or col in loader.IDENTITY_COLUMNS or col == "Source":
                 continue
             assert frame[col].isna().all(), col
+
+
+NEWER_MAPPED = {
+    "appearances", "starts", "match_rating", "duels_total", "duels_won", "duels_won_pct",
+    "dribbles_attempted", "dribbles_completed", "dribble_success_pct", "dribbled_past",
+    "fouls_drawn", "fouls_committed", "penalties_won", "penalties_conceded",
+    "penalties_missed", "offsides", "xg_chain", "xg_buildup", "goals_added",
+    "goals_added_above_avg", "ga_dribbling", "ga_passing", "ga_receiving", "ga_shooting",
+    "ga_interrupting", "ga_fouling", "passes_completed_over_expected",
+    "passes_completed_over_expected_p100", "xpass_completion_pct", "share_team_touches_pct",
+    "avg_pass_distance", "avg_vertical_pass_distance",
+}
+ASA_ONLY = {"goals_added", "goals_added_above_avg", "ga_dribbling", "ga_passing",
+            "ga_receiving", "ga_shooting", "ga_interrupting", "ga_fouling",
+            "passes_completed_over_expected", "passes_completed_over_expected_p100",
+            "xpass_completion_pct", "share_team_touches_pct", "avg_pass_distance",
+            "avg_vertical_pass_distance"}
+
+
+def test_every_newer_source_column_is_mapped():
+    assert NEWER_MAPPED == set(newer_source_columns("outfield_features"))
+
+
+def test_api_football_and_understat_newer_metrics(frames):
+    outfield, _, _ = frames
+    mid = _one(outfield, "Midfield Maestro")
+    assert (mid["appearances"], mid["starts"]) == (30, 28)
+    assert mid["match_rating"] == 7.23  # two decimals
+    assert (mid["duels_total"], mid["duels_won"]) == (200, 110)
+    assert mid["duels_won_pct"] == pytest.approx(55.0)
+    assert (mid["dribbles_attempted"], mid["dribbles_completed"]) == (40, 25)
+    assert mid["dribble_success_pct"] == pytest.approx(62.5)
+    assert mid["dribbled_past"] == 15
+    assert (mid["fouls_drawn"], mid["fouls_committed"]) == (30, 20)
+    assert (mid["penalties_won"], mid["penalties_conceded"], mid["penalties_missed"]) == (2, 1, 1)
+    assert mid["offsides"] == 3
+    assert (mid["xg_chain"], mid["xg_buildup"]) == (12.5, 6.25)
+    for col in ASA_ONLY:
+        assert _null(mid[col]), col
+
+
+def test_american_soccer_analysis_newer_metrics(frames):
+    outfield, _, _ = frames
+    asa = _one(outfield, "Carlos Striker")
+    assert asa["appearances"] == 22 and _null(asa["starts"])
+    assert (asa["goals_added"], asa["goals_added_above_avg"]) == (2.5, 0.8)
+    assert (asa["ga_shooting"], asa["ga_passing"], asa["ga_receiving"]) == (1.2, 0.4, 0.7)
+    assert (asa["ga_dribbling"], asa["ga_interrupting"], asa["ga_fouling"]) == (0.1, 0.15, -0.05)
+    assert asa["passes_completed_over_expected"] == 12.3
+    assert asa["passes_completed_over_expected_p100"] == 2.05
+    assert asa["xpass_completion_pct"] == 78.4
+    assert asa["share_team_touches_pct"] == pytest.approx(4.5)  # a share, shown as 0-100
+    assert (asa["avg_pass_distance"], asa["avg_vertical_pass_distance"]) == (15.2, 4.1)
+    for col in NEWER_MAPPED - ASA_ONLY - {"appearances"}:
+        assert _null(asa[col]), col  # ASA has no duels, dribbles, rating or xG Chain
+
+
+def test_newer_rates_with_zero_attempts_are_null_and_zero_counts_stay_zero(frames):
+    outfield, _, _ = frames
+    dfn = _one(outfield, "Lower Defender")
+    assert dfn["duels_total"] == 0 and _null(dfn["duels_won_pct"])
+    assert dfn["dribbles_attempted"] == 0 and _null(dfn["dribble_success_pct"])
+    assert dfn["penalties_conceded"] == 0 and dfn["offsides"] == 0
+    assert (dfn["dribbled_past"], dfn["fouls_committed"]) == (4, 9)
+    assert _null(dfn["xg_chain"]) and _null(dfn["xg_buildup"])  # no Understat below the big five
+
+
+def test_newer_lower_is_better_metrics_are_flagged():
+    from src.ui.metrics import LOWER_IS_BETTER
+
+    assert {"dribbled_past", "fouls_committed", "penalties_conceded",
+            "penalties_missed"} <= LOWER_IS_BETTER
+    assert not {"fouls_drawn", "penalties_won", "duels_won_pct"} & LOWER_IS_BETTER
+
+
+def test_keeper_newer_metrics(frames):
+    _, goalkeeper, _ = frames
+    gk = _one(goalkeeper, "Keeper One")
+    assert (gk["appearances"], gk["starts"], gk["match_rating"]) == (21, 20, 6.88)
+
+
+def test_a_mart_without_the_newer_columns_gives_nulls():
+    old_mart = [c for c in MART_COLUMNS if c not in ("offsides", "xg_chain", "rating")]
+    frame = players().drop(columns=["offsides", "xg_chain", "rating"])
+    assert list(frame.columns) == old_mart + LINK_COLUMNS
+    outfield, goalkeeper = loader.build_frames(frame)
+    assert outfield["offsides"].isna().all() and outfield["xg_chain"].isna().all()
+    assert goalkeeper["match_rating"].isna().all()
 
 
 def test_keeper_mapping(frames):

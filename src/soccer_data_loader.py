@@ -186,7 +186,20 @@ _MART_NUMBERS = ("minutes", "goals", "assists", "penalties_scored", "shots", "sh
                  "blocks", "yellow_cards", "red_cards", "saves", "goals_conceded",
                  "penalties_saved", "xg", "npxg", "xa",
                  # keeper results from match detail (apif / apif_matches only)
-                 "clean_sheets", "gk_starts", "wins", "draws", "losses")
+                 "clean_sheets", "gk_starts", "wins", "draws", "losses",
+                 # API-Football
+                 "appearances", "starts", "rating", "duels", "duels_won",
+                 "dribbles_attempted", "dribbles_won", "dribbled_past", "fouls_drawn",
+                 "fouls_committed", "penalties_won", "penalties_conceded", "penalties_missed",
+                 "offsides",
+                 # Understat (big five)
+                 "xg_chain", "xg_buildup",
+                 # American Soccer Analysis
+                 "goals_added_raw", "goals_added_above_avg", "ga_dribbling", "ga_passing",
+                 "ga_receiving", "ga_shooting", "ga_interrupting", "ga_fouling",
+                 "passes_completed_over_expected", "passes_completed_over_expected_p100",
+                 "xpass_completion_pct", "share_team_touches", "avg_pass_distance_yds",
+                 "avg_vertical_distance_yds")
 
 _SQL_TYPES = {"INTEGER": "INT64", "INT64": "INT64", "FLOAT": "FLOAT64", "FLOAT64": "FLOAT64",
               "BOOLEAN": "BOOL", "BOOL": "BOOL", "STRING": "STRING"}
@@ -305,9 +318,48 @@ def _frame(values: dict[str, pd.Series], columns: list[str], index, source: pd.S
     return pd.DataFrame(data, index=index).reset_index(drop=True)
 
 
+def _playing_time(p: pd.DataFrame) -> dict[str, pd.Series]:
+    """Appearances, starts and the average API-Football match rating (2 decimals)."""
+    return {"appearances": p["appearances"], "starts": p["starts"],
+            "match_rating": p["rating"].round(2)}
+
+
+def _newer_outfield(p: pd.DataFrame) -> dict[str, pd.Series]:
+    """Metrics only API-Football, Understat or ASA provide (null for the others)."""
+    return {
+        **_playing_time(p),
+        "duels_total": p["duels"],
+        "duels_won": p["duels_won"],
+        "duels_won_pct": 100 * _div(p["duels_won"], p["duels"]),
+        "dribbles_attempted": p["dribbles_attempted"],
+        "dribbles_completed": p["dribbles_won"],
+        "dribble_success_pct": 100 * _div(p["dribbles_won"], p["dribbles_attempted"]),
+        "dribbled_past": p["dribbled_past"],
+        "fouls_drawn": p["fouls_drawn"],
+        "fouls_committed": p["fouls_committed"],
+        "penalties_won": p["penalties_won"],
+        "penalties_conceded": p["penalties_conceded"],
+        "penalties_missed": p["penalties_missed"],
+        "offsides": p["offsides"],
+        "xg_chain": p["xg_chain"],
+        "xg_buildup": p["xg_buildup"],
+        "goals_added": p["goals_added_raw"],
+        "goals_added_above_avg": p["goals_added_above_avg"],
+        **{f"ga_{action}": p[f"ga_{action}"] for action in
+           ("dribbling", "passing", "receiving", "shooting", "interrupting", "fouling")},
+        "passes_completed_over_expected": p["passes_completed_over_expected"],
+        "passes_completed_over_expected_p100": p["passes_completed_over_expected_p100"],
+        "xpass_completion_pct": p["xpass_completion_pct"],
+        "share_team_touches_pct": 100 * p["share_team_touches"],
+        "avg_pass_distance": p["avg_pass_distance_yds"],
+        "avg_vertical_pass_distance": p["avg_vertical_distance_yds"],
+    }
+
+
 def _outfield(p: pd.DataFrame) -> pd.DataFrame:
     n = {col: p[col] for col in _MART_NUMBERS}
     v = _identity(p)
+    v.update(_newer_outfield(p))
     nineties = v["nineties_played"]
     nonpen = n["goals"] - n["penalties_scored"]
     v.update({
@@ -346,6 +398,7 @@ def _outfield(p: pd.DataFrame) -> pd.DataFrame:
 
 def _goalkeeper(p: pd.DataFrame) -> pd.DataFrame:
     v = _identity(p)
+    v.update(_playing_time(p))
     saves, conceded = p["saves"], p["goals_conceded"]
     faced = saves + conceded
     v.update({
