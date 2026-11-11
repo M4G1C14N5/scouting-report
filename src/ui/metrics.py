@@ -301,3 +301,108 @@ def stats_categories(group: str) -> list[str]:
 
 def profile_keys(group: str) -> list[str]:
     return [key for keys in PROFILE_METRICS.get(group, {}).values() for key in keys]
+
+
+# --- Data families ---------------------------------------------------------------
+# Every player is analysed on one fixed stat set, picked by where his row comes
+# from (the Source column the views add). The owner's rule: the same metrics for
+# everyone in a family, or none, since a stat only some players have breaks the
+# comparison. A metric a player lacks shows "n/a" instead of disappearing.
+#   fbref   FBref seasons (2017-18 to 2023-24): PROFILE_METRICS, as before
+#   europe  any "API-Football..." source: EUROPE_OUTFIELD / EUROPE_GOALKEEPER
+#   us      American Soccer Analysis: US_OUTFIELD (no US keepers are loaded)
+# Big-five European players also get BIG_FIVE_EXTRAS (Understat), ranked only
+# against big-five players.
+FBREF, EUROPE, US = "fbref", "europe", "us"
+US_SOURCE = "American Soccer Analysis"
+EUROPE_SOURCE_PREFIX = "API-Football"
+BIG_FIVE = ("Premier League", "La Liga", "Serie A", "Bundesliga", "Ligue 1")
+
+# Stored per-90 columns where they exist, otherwise season totals the views
+# rank per 90 (metric kind count or total).
+EUROPE_OUTFIELD = (
+    "goals_per_90", "shots_total_per_90", "shots_on_target_per_90",
+    "assists_per_90", "key_passes",
+    "passes_attempted_total", "passes_completion_pct_total",
+    "dribbles_attempted", "dribbles_completed", "dribble_success_pct", "fouls_drawn",
+    "tackles_total", "interceptions", "blocks_total", "dribbled_past",
+    "duels_total", "duels_won_pct",
+    "fouls_committed", "yellow_cards",
+    "match_rating",
+)
+BIG_FIVE_EXTRAS = ("xg_per_90", "npxg_per_90", "xag_per_90", "xg_chain", "xg_buildup")
+US_OUTFIELD = (
+    "goals_per_90", "xg_per_90", "shots_total_per_90", "shots_on_target_per_90",
+    "assists_per_90", "xag_per_90", "key_passes",
+    "passes_attempted_total", "passes_completion_pct_total", "xpass_completion_pct",
+    "passes_completed_over_expected_p100", "avg_pass_distance", "avg_vertical_pass_distance",
+    "share_team_touches_pct",
+    "goals_added", "ga_shooting", "ga_passing", "ga_receiving", "ga_dribbling",
+    "ga_interrupting", "ga_fouling",
+)
+EUROPE_GOALKEEPER = ("save_pct", "goals_against_per_90", "clean_sheet_pct", "saves", "match_rating")
+# What both regions have: the trial Europe-and-US comparison uses only these.
+SHARED_SET = ("goals_per_90", "shots_total_per_90", "shots_on_target_per_90", "assists_per_90",
+              "key_passes", "passes_attempted_total", "passes_completion_pct_total")
+# Too patchy in the newer sources to compare on: kept in the data and BigQuery,
+# never shown or compared for the newer seasons.
+PATCHY = frozenset({"offsides", "penalties_won", "penalties_conceded", "penalties_missed"})
+# Stats tab only: playing time every family has, for context.
+PLAYING_TIME_CONTEXT = ("minutes", "nineties_played", "appearances")
+
+# Stored per-90 column -> its season total (the Stats tab shows both on one row).
+TOTAL_OF = {per90: total for total, per90 in PER90_PAIRS.items()}
+
+
+def family_of(source: object) -> str:
+    """fbref, europe or us, from a row's Source. Anything else (a missing
+    Source, as in the FBref-only tables) is fbref."""
+    if not isinstance(source, str):
+        return FBREF
+    text = source.strip()
+    if text == US_SOURCE:
+        return US
+    if text.startswith(EUROPE_SOURCE_PREFIX):
+        return EUROPE
+    return FBREF
+
+
+def is_big_five(source: object, league: object) -> bool:
+    return family_of(source) == EUROPE and league in BIG_FIVE
+
+
+def family_set(family: str, group: str) -> tuple[str, ...]:
+    """The fixed stat set of a family and position group, in display order."""
+    if family == EUROPE:
+        return EUROPE_GOALKEEPER if group == "GK" else EUROPE_OUTFIELD
+    if family == US:
+        return () if group == "GK" else US_OUTFIELD
+    return tuple(profile_keys(group))
+
+
+def by_category(keys, group: str) -> dict[str, tuple[str, ...]]:
+    """`keys` grouped into cards, in the Stats tab's card order."""
+    out: dict[str, tuple[str, ...]] = {}
+    for category in stats_categories(group):
+        in_card = tuple(k for k in keys if STAT_CATEGORIES.get(k) == category)
+        if in_card:
+            out[category] = in_card
+    return out
+
+
+def profile_layout(family: str, group: str) -> dict[str, tuple[str, ...]]:
+    """Profile cards: today's PROFILE_METRICS for FBref, the family set otherwise."""
+    if family == FBREF:
+        return PROFILE_METRICS.get(group, {})
+    return by_category(family_set(family, group), group)
+
+
+def stats_keys(keys) -> tuple[str, ...]:
+    """Stored per-90 columns swapped for their season total (shown beside them)."""
+    return tuple(TOTAL_OF.get(k, k) for k in keys)
+
+
+def stats_layout(family: str, group: str) -> dict[str, tuple[str, ...]]:
+    """Stats-tab cards for a family player: the family set plus minutes, 90s
+    and appearances."""
+    return by_category((*PLAYING_TIME_CONTEXT, *stats_keys(family_set(family, group))), group)
