@@ -219,7 +219,7 @@ PROFILE_METRICS: dict[str, dict[str, tuple[str, ...]]] = {
         "Chance creation": ("assists_per_90", "xg_buildup"),
         "Passing": ("passes_completion_pct_total", "progressive_passing_distance",
                     "passes_into_final_third", "passes_completed_over_expected_p100",
-                    "avg_pass_distance"),
+                    "avg_pass_distance", "avg_vertical_pass_distance"),
         "Defending": ("tackles_total", "tackles_won", "tackles_def_3rd", "tackles_mid_3rd",
                       "dribblers_tackled_pct", "interceptions", "tackles_plus_interceptions",
                       "blocks_total", "clearances", "errors_leading_to_shot", "dribbled_past"),
@@ -238,7 +238,7 @@ PROFILE_METRICS: dict[str, dict[str, tuple[str, ...]]] = {
 LOWER_IS_BETTER = frozenset({
     "errors_leading_to_shot", "yellow_cards", "red_cards",
     "goals_against", "goals_against_per_90", "losses", "penalty_kicks_allowed",
-    "dribbled_past", "fouls_committed", "penalties_conceded", "penalties_missed",
+    "dribbled_past", "fouls_committed", "penalties_conceded", "penalties_missed", "offsides",
 })
 
 

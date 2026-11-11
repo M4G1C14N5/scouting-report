@@ -302,7 +302,7 @@ NEWER_FEATURES = {
             "ga_interrupting"},
     "DEF": {"duels_won_pct", "dribbled_past", "fouls_committed", "xg_buildup",
             "passes_completed_over_expected_p100", "ga_passing",
-            "ga_interrupting", "avg_pass_distance"},
+            "ga_interrupting", "avg_pass_distance", "avg_vertical_pass_distance"},
     "GK": {"match_rating"},
 }
 
@@ -325,7 +325,7 @@ def test_every_season_total_in_a_template_is_compared_per_90():
         "crosses_into_penalty_area", "progressive_carries", "progressive_passing_distance",
         "pass_progressive_passes", "tackles_total", "tackles_won", "tackles_def_3rd",
         "tackles_mid_3rd", "interceptions", "tackles_plus_interceptions", "blocks_total",
-        "clearances", "errors_leading_to_shot", "shots_on_target_against", "saves",
+        "clearances", "errors_leading_to_shot", "saves",
         # newer-source totals
         "dribbles_completed", "xg_chain", "xg_buildup", "fouls_drawn", "fouls_committed",
         "dribbled_past", "ga_shooting", "ga_receiving", "ga_passing",
@@ -339,7 +339,7 @@ def test_every_season_total_in_a_template_is_compared_per_90():
 def test_goalkeeper_template_has_saves_and_match_rating():
     template = similarity.FEATURE_TEMPLATES["GK"]
     assert template == ["save_pct", "goals_against_per_90", "clean_sheet_pct", "pk_save_pct",
-                        "shots_on_target_against", "saves", "match_rating"]
+                        "saves", "match_rating"]
 
 def test_with_per90_divides_the_season_totals_by_90s():
     pool = _pool([{"Player": "Q", "minutes": 900, "dribbles_completed": 10.0,
@@ -380,7 +380,7 @@ def _us_and_europe_pool() -> pd.DataFrame:
     rng = np.random.default_rng(9)
     template = similarity.FEATURE_TEMPLATES["ATT"]
     asa = ["goals_per_90", "xg_per_90", "goals_per_shot", "assists_per_90", "xag_per_90",
-           "key_passes", "shots_total_per_90", "passes_completion_pct_total", "goals_added",
+           "key_passes", "shots_total_per_90", "passes_completion_pct_total",
            "ga_shooting", "ga_receiving"]
     api = ["goals_per_90", "goals_per_shot", "assists_per_90", "key_passes",
            "shots_total_per_90", "passes_completion_pct_total", "dribbles_completed",

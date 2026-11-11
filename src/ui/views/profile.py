@@ -8,7 +8,7 @@ import streamlit as st
 from src.similarity import MIN_MINUTES
 from src.ui import build, metrics, state, stats, theme, viz
 
-BAND_NOTE = ("Stats where lower is better (errors, cards, fouls, dribbled past, goals against) "
+BAND_NOTE = ("Stats where lower is better (errors, cards, fouls committed, dribbled past, penalties conceded or missed, goals against) "
              "are inverted, "
              "so a longer bar is always better. Counting stats are ranked per 90 minutes.")
 

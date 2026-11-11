@@ -110,7 +110,7 @@ def test_profile_metrics_cover_the_similarity_templates():
 
 def test_profile_metric_counts_and_no_duplicates():
     counts = {g: len(metrics.profile_keys(g)) for g in metrics.PROFILE_METRICS}
-    assert counts == {"ATT": 26, "MID": 24, "DEF": 24, "GK": 8}
+    assert counts == {"ATT": 26, "MID": 24, "DEF": 25, "GK": 8}
     for group in metrics.PROFILE_METRICS:
         keys = metrics.profile_keys(group)
         assert len(keys) == len(set(keys)), group
@@ -125,7 +125,8 @@ def test_profiles_carry_the_newer_source_metrics():
                 "ga_interrupting"},
         "DEF": {"duels_won_pct", "dribbled_past", "fouls_committed", "xg_buildup",
                 "passes_completed_over_expected_p100", "ga_interrupting", "ga_passing",
-                "goals_added", "avg_pass_distance"},
+                "goals_added", "avg_pass_distance",
+                "avg_vertical_pass_distance"},
         "GK": {"match_rating"},
     }
     for group, keys in newer.items():
@@ -154,6 +155,7 @@ def test_lower_is_better_keys_are_real_columns():
         "errors_leading_to_shot", "yellow_cards", "red_cards", "goals_against",
         "goals_against_per_90", "losses", "penalty_kicks_allowed",
         "dribbled_past", "fouls_committed", "penalties_conceded", "penalties_missed",
+        "offsides",
     }
 
 

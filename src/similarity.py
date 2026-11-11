@@ -152,6 +152,7 @@ FEATURE_TEMPLATES = {
         "xg_buildup",
         "passes_completed_over_expected_p100",
         "avg_pass_distance",
+        "avg_vertical_pass_distance",
         "ga_interrupting",
         "ga_passing",
     ],
@@ -160,7 +161,7 @@ FEATURE_TEMPLATES = {
         "goals_against_per_90",
         "clean_sheet_pct",
         "pk_save_pct",
-        "shots_on_target_against",
+        # shots on target against is left out: it equals saves plus goals against
         "saves",
         # Newer sources: average API-Football match rating
         "match_rating",
