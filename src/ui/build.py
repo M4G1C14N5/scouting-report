@@ -130,16 +130,20 @@ def compare_lists(a_rows: Mapping[str, list[PctRow]],
     return labels, a_vals, b_vals
 
 
-def stat_table(row: Mapping[str, Any], category: str) -> pd.DataFrame:
+def stat_table(row: Mapping[str, Any], category: str, keys: Sequence[str] | None = None,
+               keep_missing: bool = False) -> pd.DataFrame:
     """Stat / Total / Per 90 rows for one Stats-tab card.
 
-    A stored per-90 column is shown beside its total rather than on its own
-    row. Counting stats without one get a computed per 90. Rates and tallies
-    show their value under Total and leave Per 90 blank."""
+    `keys` defaults to every stat in the category (FBref seasons); the newer
+    seasons pass their family set. A stored per-90 column is shown beside its
+    total rather than on its own row. Counting stats without one get a
+    computed per 90. Rates and tallies show their value under Total and leave
+    Per 90 blank. A stat with no value is dropped, or kept with both columns
+    blank when keep_missing is set (the view shows it as n/a)."""
     paired = set(metrics.PER90_PAIRS.values())
     nineties = stats.to_float(row.get("nineties_played"))
     records = []
-    for key in metrics.keys_in_category(category):
+    for key in (metrics.keys_in_category(category) if keys is None else keys):
         kind = metrics.KIND[key]
         if kind == "per90" and key in paired:
             continue
@@ -150,7 +154,7 @@ def stat_table(row: Mapping[str, Any], category: str) -> pd.DataFrame:
             p90 = stats.to_float(row.get(metrics.PER90_PAIRS[key])) if key in metrics.PER90_PAIRS else None
             if p90 is None and kind in metrics.PER90_COMPUTED_KINDS:
                 p90 = stats.per90(total, nineties)  # no stored per-90 value: compute it
-        if total is None and p90 is None:
+        if total is None and p90 is None and not keep_missing:
             continue
         decimals = metrics.TOTAL_DECIMALS[metrics.KIND_FORMAT[kind]]
         records.append({
@@ -164,7 +168,11 @@ def stat_table(row: Mapping[str, Any], category: str) -> pd.DataFrame:
 
 def kpi_tiles(row: Mapping[str, Any], group: str) -> list[tuple[str, str, str]]:
     """(label, value text, help text) for the identity card's KPI row."""
-    specs = metrics.KPI_TILES["GK" if group == "GK" else "outfield"]
+    if group == "GK":
+        specs = metrics.KPI_TILES["GK"]
+    else:
+        family = metrics.family_of(row.get("Source"))
+        specs = metrics.KPI_TILES["outfield" if family == metrics.FBREF else family]
     tiles = []
     for spec in specs:
         if spec.per90:

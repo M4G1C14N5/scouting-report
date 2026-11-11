@@ -254,6 +254,17 @@ KPI_TILES: dict[str, tuple[KpiSpec, ...]] = {
         KpiSpec("Goals", "std_goals"), KpiSpec("Assists", "std_assists"),
         KpiSpec("xG", "std_xg"), KpiSpec("xAG", "xag"),
     ),
+    # Newer seasons: only stats the whole family has (most of Europe has no xG).
+    "europe": (
+        KpiSpec("Minutes", "minutes"), KpiSpec("90s", "nineties_played"),
+        KpiSpec("Goals", "std_goals"), KpiSpec("Assists", "std_assists"),
+        KpiSpec("Shots", "shots_total"), KpiSpec("Match Rating", "match_rating"),
+    ),
+    "us": (
+        KpiSpec("Minutes", "minutes"), KpiSpec("90s", "nineties_played"),
+        KpiSpec("Goals", "std_goals"), KpiSpec("Assists", "std_assists"),
+        KpiSpec("xG", "std_xg"), KpiSpec("xA", "xag"),
+    ),
     "GK": (
         KpiSpec("Minutes", "minutes"), KpiSpec("90s", "nineties_played"),
         KpiSpec("Save %", "save_pct"), KpiSpec("GA / 90", "goals_against_per_90"),
@@ -271,6 +282,7 @@ GLOSSARY = {
     "save_pct": "Share of shots on target faced that he saved.",
     "goals_against_per_90": "Goals conceded per 90 minutes he played. Lower is better.",
     "clean_sheet_pct": "Share of his matches in which his team kept a clean sheet.",
+    "match_rating": "Average API-Football match rating over his appearances (out of 10).",
 }
 
 

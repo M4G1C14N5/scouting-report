@@ -29,10 +29,13 @@ def _text(value: float, per90: bool) -> str:
 
 
 def display_table(table: pd.DataFrame) -> pd.DataFrame:
-    """The Stats-tab table as text columns, blank where a value is missing."""
+    """The Stats-tab table as text columns, blank where a value is missing.
+    A row with no value at all (a family stat this player lacks) reads n/a."""
     out = table.copy()
     out["Total"] = [_text(v, False) for v in table["Total"]]
     out["Per 90"] = [_text(v, True) for v in table["Per 90"]]
+    none = table["Total"].isna() & table["Per 90"].isna()
+    out.loc[none, "Total"] = build.NOT_AVAILABLE
     return out
 
 
@@ -40,9 +43,31 @@ NOTE = ("Per 90 = per 90 minutes played. Percentages and per-shot stats are seas
         "so they have no per-90 value.")
 
 
+BIG_FIVE_TITLE = "Big five only"
+BIG_FIVE_NOTE = ("From Understat, which covers only the Premier League, La Liga, Serie A, "
+                 "Bundesliga and Ligue 1.")
+
+
+def _tables(row, group: str) -> list[tuple[str, pd.DataFrame, str]]:
+    """(card title, table, note) per card. FBref seasons: every stat by category,
+    as before. Newer seasons: the family's fixed set (patchy stats such as
+    offsides never appear), plus the Understat extras for big-five players."""
+    family = metrics.family_of(row.get("Source"))
+    if family == metrics.FBREF:
+        tables = [(category, build.stat_table(row, category), "")
+                  for category in metrics.stats_categories(group)]
+        return [t for t in tables if not t[1].empty]
+    tables = [(category, build.stat_table(row, category, keys=keys, keep_missing=True), "")
+              for category, keys in metrics.stats_layout(family, group).items()]
+    if group != "GK" and metrics.is_big_five(row.get("Source"), row.get("League")):
+        extras = build.stat_table(row, BIG_FIVE_TITLE, keep_missing=True,
+                                  keys=metrics.stats_keys(metrics.BIG_FIVE_EXTRAS))
+        tables.append((BIG_FIVE_TITLE, extras, BIG_FIVE_NOTE))
+    return tables
+
+
 def render(row, group: str) -> None:
-    tables = [(category, build.stat_table(row, category)) for category in metrics.stats_categories(group)]
-    tables = [(category, table) for category, table in tables if not table.empty]
+    tables = _tables(row, group)
     if not tables:
         st.markdown(theme.empty_state_html("No stats recorded",
                                            "This player-season has no stat columns filled in."),
@@ -50,9 +75,11 @@ def render(row, group: str) -> None:
         return
     for start in range(0, len(tables), 2):
         cols = st.columns(2, gap="medium")
-        for col, (category, table) in zip(cols, tables[start:start + 2]):
+        for col, (category, table, note) in zip(cols, tables[start:start + 2]):
             with col, st.container(border=True, key=f"card_stats_{stats.slug(category)}"):
                 st.markdown(theme.card_title_html(category), unsafe_allow_html=True)
+                if note:
+                    st.caption(note)
                 st.dataframe(display_table(table), hide_index=True, width="stretch", height="content",
                              row_height=34, column_config=COLUMN_CONFIG)
     st.caption(NOTE)

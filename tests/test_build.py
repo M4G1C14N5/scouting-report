@@ -297,3 +297,29 @@ def test_compare_lists_skip_n_a_rows():
     b = {"Shooting": [build.PctRow("g", "Goals", 40.0, 1.0), build.PctRow("x", "xG", 20.0, 1.0)]}
     assert build.compare_lists(a, b) == (["Goals"], [80.0], [40.0])
     assert build.compare_lists(b, a) == (["Goals"], [40.0], [80.0])
+
+
+def test_stat_table_with_keys_keeps_missing_rows():
+    row = pd.Series({"nineties_played": 20.0, "std_goals": 10, "goals_per_90": 0.5,
+                     "duels_won_pct": 51.0, "offsides": 3})
+    table = build.stat_table(row, "Duels", keys=("duels_total", "duels_won_pct"), keep_missing=True)
+    by = table.set_index("Stat")
+    assert list(by.index) == ["Duels", "Duels Won %"]
+    assert pd.isna(by.loc["Duels", "Total"]) and pd.isna(by.loc["Duels", "Per 90"])
+    shooting = build.stat_table(row, "Shooting", keys=("std_goals",)).set_index("Stat")
+    assert list(shooting.index) == ["Goals"] and shooting.loc["Goals", "Per 90"] == 0.5
+
+
+def test_kpi_tiles_by_family():
+    europe = build.kpi_tiles(pd.Series({"Source": "API-Football", "minutes": 900, "nineties_played": 10.0,
+                                        "std_goals": 3, "std_assists": 2, "shots_total": 20,
+                                        "match_rating": 7.12}), "ATT")
+    assert [(lbl, txt) for lbl, txt, _ in europe] == [
+        ("Minutes", "900"), ("90s", "10.0"), ("Goals", "3"), ("Assists", "2"), ("Shots", "20"),
+        ("Match Rating", "7.12")]
+    us = build.kpi_tiles(pd.Series({"Source": "American Soccer Analysis", "std_xg": 4.2, "xag": 1.1}), "ATT")
+    assert [lbl for lbl, _, _ in us] == ["Minutes", "90s", "Goals", "Assists", "xG", "xA"]
+    fbref = build.kpi_tiles(pd.Series({"Source": "FBref"}), "ATT")
+    assert [lbl for lbl, _, _ in fbref] == ["Minutes", "90s", "Goals", "Assists", "xG", "xAG"]
+    gk = build.kpi_tiles(pd.Series({"Source": "API-Football"}), "GK")
+    assert [lbl for lbl, _, _ in gk][2:] == ["Save %", "GA / 90", "CS %", "Saves / 90"]

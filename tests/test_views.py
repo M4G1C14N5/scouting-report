@@ -279,13 +279,16 @@ def test_stats_outfield_fbref_row_has_seven_category_tables_in_order():
     assert "Duels" not in md and "Goals added" not in md  # FBref rows lack them
 
 
-def test_stats_newer_source_row_shows_duels_and_goals_added():
+def test_stats_us_row_shows_the_us_set():
     row = _new_source_row(duels_total=120.0, duels_won=66.0, duels_won_pct=55.0,
-                          goals_added=1.8, ga_shooting=0.9)
+                          goals_added=1.8, ga_shooting=0.9, offsides=4.0)
     at = _run(stats_row_script, row)
     md = _markdown(at)
-    assert "Duels" in md and "Goals added" in md
-    assert len(at.dataframe) == 9
+    assert "Goals added" in md
+    assert "Duels" not in md  # not in the US set, even when the row has it
+    assert len(at.dataframe) == 6
+    stats_shown = {s for df in at.dataframe for s in df.value["Stat"]}
+    assert "Offsides" not in stats_shown and "Tackles" not in stats_shown
     assert "Per 90 = per 90 minutes played" in _captions(at)
 
 
@@ -376,6 +379,15 @@ def test_similar_selection_is_cleared_when_the_player_changes(stub_similar):
     assert not at.exception, at.exception
     assert len(at.get("plotly_chart")) == 0
     assert all(b.key != "view_profile" for b in at.button)
+
+
+def test_stats_display_table_shows_n_a_when_a_row_has_no_value():
+    import pandas as pd
+    from src.ui.views import stats_tab
+
+    table = pd.DataFrame({"Stat": ["Dribbled Past"], "Total": [float("nan")], "Per 90": [float("nan")]})
+    out = stats_tab.display_table(table)
+    assert list(out["Total"]) == ["n/a"] and list(out["Per 90"]) == [""]
 
 
 def test_stats_display_table_leaves_missing_values_blank():
@@ -501,3 +513,67 @@ def test_profile_europe_goalkeeper_uses_the_keeper_set():
     assert set(_bar_labels(at)) == _family_labels(metrics.EUROPE_GOALKEEPER)
     assert len(at.get("plotly_chart")) == 2  # Goalkeeping, Playing time
     assert "Big five only" not in _markdown(at)
+
+
+def stats_new_script(player: str, season: str) -> None:
+    from src.ui.views import stats_tab
+    from tests import fakes
+
+    row = fakes.new_player_stats(player, season)
+    stats_tab.render(row, row["position_group"])
+
+
+def _stat_rows(at) -> dict[str, tuple[str, str]]:
+    out = {}
+    for df in at.dataframe:
+        for _, r in df.value.iterrows():
+            out[r["Stat"]] = (r["Total"], r["Per 90"])
+    return out
+
+
+def _stats_labels(keys) -> set[str]:
+    from src.ui import metrics
+
+    return {metrics.label(k) for k in metrics.stats_keys(keys)}
+
+
+def test_stats_europe_player_shows_the_europe_set_and_hides_patchy_stats():
+    from src.ui import metrics
+
+    at = _run(stats_new_script, "Two Forward 1", fakes.EUROPE_SEASON)
+    rows = _stat_rows(at)
+    assert set(rows) == _stats_labels(metrics.EUROPE_OUTFIELD) | {"Minutes", "90s", "Appearances"}
+    for patchy in ("Offsides", "Penalties Won", "Penalties Conceded", "Penalties Missed"):
+        assert patchy not in rows, patchy  # the fake row has them filled
+    assert len(at.dataframe) == 8 and "Big five only" not in _markdown(at)
+
+
+def test_stats_big_five_player_gets_a_big_five_only_section():
+    from src.ui import metrics
+
+    at = _run(stats_new_script, "Liga Forward 0", fakes.EUROPE_SEASON)
+    md = _markdown(at)
+    assert "Big five only" in md and len(at.dataframe) == 9
+    big = at.dataframe[-1].value
+    assert set(big["Stat"]) == _stats_labels(metrics.BIG_FIVE_EXTRAS)
+    assert "Understat" in md + _captions(at)
+
+
+def test_stats_missing_metric_shows_n_a():
+    at = _run(stats_new_script, "Gappy Forward", fakes.EUROPE_SEASON)
+    assert _stat_rows(at)["Dribbled Past"] == ("n/a", "")
+
+
+def test_stats_europe_goalkeeper_uses_the_keeper_set():
+    at = _run(stats_new_script, "Two Keeper 0", fakes.EUROPE_SEASON)
+    assert set(_stat_rows(at)) == {"Save %", "Goals Against", "Clean Sheet %", "Saves", "Minutes",
+                                   "90s", "Appearances", "Match Rating"}
+
+
+def test_header_tiles_follow_the_family():
+    europe = _markdown(_run(header_row_script, fakes.new_player_stats("Two Forward 0", fakes.EUROPE_SEASON).to_dict()))
+    for text in ("Goals", "Assists", "Shots", "Match Rating"):
+        assert text in europe, text
+    assert ">xG<" not in europe and ">xAG<" not in europe  # most European leagues have no xG
+    us = _markdown(_run(header_row_script, fakes.new_player_stats("US Forward 0", fakes.US_SEASON).to_dict()))
+    assert ">xG<" in us and ">xA<" in us
