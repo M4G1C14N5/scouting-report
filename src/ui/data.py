@@ -51,7 +51,7 @@ def load_player_index(_bq) -> pd.DataFrame:
         FROM {table_ref(GOALKEEPER_TABLE)}
         ORDER BY Player, Season
     """
-    return _bq.query(sql).to_dataframe()
+    return _bq.query(sql).to_dataframe(create_bqstorage_client=False)
 
 
 @st.cache_data(ttl=TTL, show_spinner="Loading player stats…")
@@ -64,7 +64,7 @@ def position_pool(_bq, position_group: str, season: str, paired: bool = False) -
     """Everyone in the group and season with MIN_MINUTES+ minutes, fetched once and
     shared by the Profile and Similar tabs. paired=True adds the other region's
     paired season (src.similarity.paired_season), for the trial compare mode."""
-    return _bq.query(pool_sql(position_group, season, paired)).to_dataframe()
+    return _bq.query(pool_sql(position_group, season, paired)).to_dataframe(create_bqstorage_client=False)
 
 
 @st.cache_data(ttl=TTL, show_spinner="Finding similar players…")

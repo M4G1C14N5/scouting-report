@@ -26,7 +26,7 @@ class FakeJob:
     def __init__(self, df: pd.DataFrame) -> None:
         self._df = df
 
-    def to_dataframe(self) -> pd.DataFrame:
+    def to_dataframe(self, **kwargs) -> pd.DataFrame:
         return self._df
 
 

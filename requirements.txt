@@ -7,7 +7,6 @@ openpyxl
 lxml
 numpy
 google-cloud-bigquery
-google-cloud-bigquery-storage>=2.43,<3
 google-cloud-storage
 pyarrow
 db-dtypes

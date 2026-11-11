@@ -316,7 +316,7 @@ def pool_sql(position_group: str, season: str, paired: bool = False) -> str:
 def _fetch_features(bq_client: bigquery.Client, position_group: str, season: str,
                     paired: bool = False) -> pd.DataFrame:
     """Pull feature table rows for a given position group and season from BigQuery."""
-    return bq_client.query(pool_sql(position_group, season, paired)).to_dataframe()
+    return bq_client.query(pool_sql(position_group, season, paired)).to_dataframe(create_bqstorage_client=False)
 
 
 def _zscore_matrix(df: pd.DataFrame, feature_cols: list[str]) -> np.ndarray:
@@ -543,7 +543,7 @@ def find_similar_players(
             bigquery.ScalarQueryParameter("season", "STRING", season),
         ]
     )
-    result = bq_client.query(lookup_sql, job_config=job_config).to_dataframe()
+    result = bq_client.query(lookup_sql, job_config=job_config).to_dataframe(create_bqstorage_client=False)
     if result.empty:
         raise ValueError(f"Player '{player}' not found for season '{season}'.")
 
@@ -591,7 +591,7 @@ def get_player_stats(
                 bigquery.ScalarQueryParameter("season", "STRING", season),
             ]
         )
-        df = bq_client.query(sql, job_config=job_config).to_dataframe()
+        df = bq_client.query(sql, job_config=job_config).to_dataframe(create_bqstorage_client=False)
         if not df.empty:
             return df.iloc[0]
 
