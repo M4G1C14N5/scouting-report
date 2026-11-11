@@ -316,7 +316,7 @@ def test_templates_add_the_newer_source_features_after_the_fbref_ones():
 
 
 def test_every_season_total_in_a_template_is_compared_per_90():
-    in_templates = {c for t in similarity.FEATURE_TEMPLATES.values() for c in t}
+    in_templates = {c for t in similarity._all_templates() for c in t}
     assert similarity.PER90_FEATURES == {
         c for c in in_templates if metrics.KIND[c] in ("count", "total", "tally")}
     assert {
@@ -329,7 +329,7 @@ def test_every_season_total_in_a_template_is_compared_per_90():
         # newer-source totals
         "dribbles_completed", "xg_chain", "xg_buildup", "fouls_drawn", "fouls_committed",
         "dribbled_past", "ga_shooting", "ga_receiving", "ga_passing",
-        "ga_interrupting"} == similarity.PER90_FEATURES
+        "ga_interrupting"} <= similarity.PER90_FEATURES
     # rates, percentages, distances and stored per-90 columns stay as they are
     assert not {"goals_per_90", "save_pct", "duels_won_pct", "goals_per_shot", "match_rating",
                 "avg_pass_distance", "passes_completed_over_expected_p100"} & (
@@ -427,3 +427,163 @@ def test_goals_added_counts_once_through_its_parts():
     # still a Profile bar
     for group in ("ATT", "MID", "DEF"):
         assert "goals_added" in metrics.profile_keys(group), group
+
+
+# --- compare modes on fixed family templates -------------------------------------
+
+SHARED, BIG5, TRIAL = similarity.MODE_SHARED, similarity.MODE_BIG_FIVE, similarity.MODE_TRIAL
+
+
+def test_mode_names():
+    assert SHARED == "All leagues, shared stats"
+    assert BIG5 == "Big five, all stats"
+    assert TRIAL == "Europe and US together (trial)"
+
+
+@pytest.mark.parametrize("season, paired", [
+    ("2025", "2025-2026"), ("2024", "2024-2025"), ("2026", "2026-2027"),
+    ("2025-2026", "2025"), ("2024-2025", "2024"), ("not a season", None),
+])
+def test_paired_season(season, paired):
+    assert similarity.paired_season(season) == paired
+
+
+@pytest.mark.parametrize("family, group, big_five, modes", [
+    ("europe", "ATT", True, [SHARED, BIG5, TRIAL]),
+    ("europe", "DEF", False, [SHARED, TRIAL]),
+    ("us", "MID", False, [SHARED, TRIAL]),
+    ("europe", "GK", True, [SHARED]),   # no big-five or trial mode for keepers
+    ("fbref", "ATT", False, [SHARED]),  # FBref seasons keep their template, no trial
+    ("fbref", "GK", False, [SHARED]),
+])
+def test_modes_offered(family, group, big_five, modes):
+    assert similarity.modes_for(family, group, big_five) == modes
+
+
+def test_mode_templates_are_fixed_family_sets():
+    for group in ("ATT", "MID", "DEF"):
+        assert similarity.mode_template(SHARED, "europe", group) == list(metrics.EUROPE_OUTFIELD)
+        assert similarity.mode_template(BIG5, "europe", group) == [
+            *metrics.EUROPE_OUTFIELD, *metrics.BIG_FIVE_EXTRAS]
+        assert similarity.mode_template(TRIAL, "europe", group) == list(metrics.SHARED_SET)
+        assert similarity.mode_template(TRIAL, "us", group) == list(metrics.SHARED_SET)
+        # the goals added total is the sum of its six parts: compared once, through the parts
+        assert similarity.mode_template(SHARED, "us", group) == [
+            k for k in metrics.US_OUTFIELD if k != "goals_added"]
+        assert similarity.mode_template(SHARED, "fbref", group) == similarity.FEATURE_TEMPLATES[group]
+    assert similarity.mode_template(SHARED, "europe", "GK") == list(metrics.EUROPE_GOALKEEPER)
+    for template in (similarity.mode_template(m, f, "ATT") for m, f in
+                     ((SHARED, "europe"), (SHARED, "us"), (BIG5, "europe"), (TRIAL, "us"))):
+        assert not metrics.PATCHY & set(template)
+
+
+def test_family_template_totals_are_compared_per_90():
+    assert {"passes_attempted_total", "duels_total", "dribbles_attempted", "blocks_total",
+            "yellow_cards", "ga_dribbling", "ga_fouling"} <= similarity.PER90_FEATURES
+    pool = _pool([{"Player": "Q", "minutes": 900, "passes_attempted_total": 450.0,
+                   "yellow_cards": 3.0, "match_rating": 7.1}])
+    out = similarity.with_per90(pool, ["passes_attempted_total", "yellow_cards", "match_rating"])
+    assert out.iloc[0]["passes_attempted_total"] == pytest.approx(45.0)
+    assert out.iloc[0]["yellow_cards"] == pytest.approx(0.3)
+    assert out.iloc[0]["match_rating"] == 7.1
+
+
+def _europe_pool(paired: bool = False) -> pd.DataFrame:
+    return fakes.new_position_pool("ATT", fakes.EUROPE_SEASON, paired=paired)
+
+
+def test_shared_mode_compares_across_every_european_league_on_the_europe_set():
+    out = similarity.similar_in_pool(_europe_pool(), "Prem Forward 3", fakes.EUROPE_SEASON,
+                                     SHARED, top_n=50)
+    assert set(out["League"]) == {"Premier League", "La Liga", "League Two"}
+    assert "Gappy Forward" not in set(out["Player"])  # lacks a template stat: never a candidate
+    assert len(out) == 19  # 21 European forwards, minus the query and Gappy Forward
+    assert list(out.columns) == ["Player", "Squad", "League", "Season", "position_group",
+                                 "minutes", "similarity_score"]
+
+
+def test_shared_mode_never_mixes_in_the_other_region():
+    out = similarity.similar_in_pool(_europe_pool(paired=True), "Two Forward 0",
+                                     fakes.EUROPE_SEASON, SHARED, top_n=50)
+    assert set(out["Season"]) == {fakes.EUROPE_SEASON}
+
+
+def test_big_five_mode_uses_big_five_players_only():
+    out = similarity.similar_in_pool(_europe_pool(), "Prem Forward 3", fakes.EUROPE_SEASON,
+                                     BIG5, top_n=50)
+    assert set(out["League"]) == {"Premier League", "La Liga"}
+    assert len(out) == 11
+
+
+def test_big_five_mode_is_not_offered_outside_the_big_five():
+    with pytest.raises(ValueError):
+        similarity.similar_in_pool(_europe_pool(), "Two Forward 0", fakes.EUROPE_SEASON, BIG5)
+
+
+def test_trial_mode_mixes_europe_and_the_paired_us_season():
+    out = similarity.similar_in_pool(_europe_pool(paired=True), "Two Forward 0",
+                                     fakes.EUROPE_SEASON, TRIAL, top_n=50)
+    assert set(out["Season"]) == {fakes.EUROPE_SEASON, fakes.US_SEASON}
+    assert "Gappy Forward" in set(out["Player"])  # dribbled past is not a shared stat
+    us_pool = fakes.new_position_pool("ATT", fakes.US_SEASON, paired=True)
+    out = similarity.similar_in_pool(us_pool, "US Forward 0", fakes.US_SEASON, TRIAL, top_n=50)
+    assert set(out["Season"]) == {fakes.EUROPE_SEASON, fakes.US_SEASON}
+    assert len(out) == 7 + 21
+
+
+def test_trial_mode_without_a_paired_season_in_the_data_has_us_players_only():
+    pool = fakes.new_position_pool("ATT", fakes.US_LATE, paired=True)
+    out = similarity.similar_in_pool(pool, "Late US Forward 0", fakes.US_LATE, TRIAL, top_n=50)
+    assert set(out["Season"]) == {fakes.US_LATE} and len(out) == 5
+
+
+def test_trial_mode_is_not_offered_for_keepers_or_fbref():
+    gk = fakes.new_position_pool("GK", fakes.EUROPE_SEASON)
+    with pytest.raises(ValueError):
+        similarity.similar_in_pool(gk, "Prem Keeper 0", fakes.EUROPE_SEASON, TRIAL)
+    fbref = fakes.position_pool("ATT", fakes.LATEST)
+    with pytest.raises(ValueError):
+        similarity.similar_in_pool(fbref, "Mohamed Salah", fakes.LATEST, TRIAL)
+
+
+def test_incomplete_query_player_gets_the_missing_stats_named():
+    with pytest.raises(similarity.IncompleteDataError) as err:
+        similarity.similar_in_pool(_europe_pool(), "Gappy Forward", fakes.EUROPE_SEASON, SHARED)
+    assert str(err.value) == ("This player's data is incomplete for this comparison "
+                              "(missing: Dribbled Past). Try another mode.")
+    assert err.value.missing == ["dribbled_past"]
+
+
+def test_fixed_templates_never_drop_a_feature():
+    # Q lacks nothing, but only 3 others have every stat: no dropping to find 20.
+    template = ["goals_per_90", "key_passes", "duels_won_pct"]
+    rows = [{"Player": f"P{i}", "Source": "API-Football", "goals_per_90": 0.1 * i,
+             "key_passes": 5.0 + i, "duels_won_pct": (50.0 + i if i < 4 else np.nan)}
+            for i in range(30)]
+    pool = _pool(rows, season="2025-2026")
+    out = similarity.rank_fixed(pool, "P0", "2025-2026", template, top_n=50)
+    assert sorted(out["Player"]) == ["P1", "P2", "P3"]
+
+
+def test_europe_keeper_compares_on_the_keeper_set():
+    gk = fakes.new_position_pool("GK", fakes.EUROPE_SEASON)
+    out = similarity.similar_in_pool(gk, "Two Keeper 0", fakes.EUROPE_SEASON, SHARED, top_n=50)
+    assert len(out) == 6 and set(out["position_group"]) == {"GK"}
+
+
+@pytest.mark.parametrize("player, group", [("Mohamed Salah", "ATT"), ("Alisson", "GK")])
+def test_fbref_shared_mode_is_the_unchanged_fbref_ranking(player, group):
+    pool = fakes.position_pool(group, fakes.LATEST)
+    got = similarity.similar_in_pool(pool, player, fakes.LATEST, SHARED, top_n=10)
+    expected = similarity.rank_similar(pool, player, fakes.LATEST,
+                                       similarity.FEATURE_TEMPLATES[group], 10)
+    pd.testing.assert_frame_equal(got, expected)
+
+
+def test_find_similar_players_in_trial_mode_fetches_the_paired_season():
+    pool = _europe_pool(paired=True)
+    bq = FakeBQ(pool, "ATT")
+    out = similarity.find_similar_players("Two Forward 0", fakes.EUROPE_SEASON, top_n=50,
+                                          bq_client=bq, mode=TRIAL)
+    assert "Season IN ('2025-2026', '2025')" in " ".join(bq.calls[-1].split())
+    assert fakes.US_SEASON in set(out["Season"])

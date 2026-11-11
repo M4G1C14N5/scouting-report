@@ -23,9 +23,10 @@ def stub_data(monkeypatch):
     monkeypatch.setattr(data, "player_stats",
                         lambda _bq, player, season: fakes.player_stats(player, season))
     monkeypatch.setattr(data, "position_pool",
-                        lambda _bq, group, season: fakes.position_pool(group, season))
+                        lambda _bq, group, season, paired=False: fakes.position_pool(group, season))
     monkeypatch.setattr(data, "similar_players",
-                        lambda _bq, player, season, group: fakes.similar_players(player, season, group))
+                        lambda _bq, player, season, group, mode=None: fakes.similar_players(
+                            player, season, group))
 
 
 def _app() -> AppTest:

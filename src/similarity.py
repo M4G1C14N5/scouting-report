@@ -43,6 +43,7 @@ import numpy as np
 import pandas as pd
 from google.cloud import bigquery
 
+from src.ui import metrics
 from src.ui.metrics import KIND
 
 GCP_PROJECT = os.environ.get("GCP_PROJECT", "scouting-466001")
@@ -172,13 +173,108 @@ FEATURE_TEMPLATES = {
 # them per 90 minutes, so a player with more minutes does not look different.
 SEASON_TOTAL_KINDS = frozenset({"count", "total", "tally"})
 
+# --- Compare modes (newer seasons) ----------------------------------------------
+# FBref seasons keep FEATURE_TEMPLATES and the feature selection above. The
+# newer seasons use fixed templates, the same stats for every player: a
+# candidate needs every one of them, nothing is dropped, and a query player
+# missing one gets IncompleteDataError instead of a ranking on fewer stats.
+MODE_SHARED = "All leagues, shared stats"
+MODE_BIG_FIVE = "Big five, all stats"
+MODE_TRIAL = "Europe and US together (trial)"
+MODES = (MODE_SHARED, MODE_BIG_FIVE, MODE_TRIAL)
+
+BIG_FIVE_NOTE = "Big five only: uses Understat stats that the other leagues do not have."
+TRIAL_NOTE = ("Trial: compares European and US players on the seven stats both regions have "
+              "(goals, assists, shots, shots on target, key passes, passes, pass completion). "
+              "League strength differs a lot between these leagues, so read a match as a "
+              "similar style of play, not a similar level.")
+INCOMPLETE = ("This player's data is incomplete for this comparison (missing: {missing}). "
+              "Try another mode.")
+
+# The goals added total is the sum of its six parts, which are all in the US
+# set: comparing on both would count it twice. It stays a Profile bar.
+NOT_IN_TEMPLATES = frozenset({"goals_added"})
+
+
+class IncompleteDataError(ValueError):
+    """The query player lacks a stat of the mode's fixed template."""
+
+    def __init__(self, missing: list[str]) -> None:
+        self.missing = list(missing)
+        super().__init__(INCOMPLETE.format(missing=", ".join(metrics.label(c) for c in missing)))
+
+
+def paired_season(season: str) -> str | None:
+    """The other region's season for the trial mode: US year Y pairs with the
+    European Y-(Y+1), and the European Y-(Y+1) with US Y."""
+    text = str(season)
+    if text.isdigit() and len(text) == 4:
+        return f"{text}-{int(text) + 1}"
+    head, sep, tail = text.partition("-")
+    if sep and head.isdigit() and tail.isdigit() and len(head) == len(tail) == 4:
+        return head
+    return None
+
+
+def modes_for(family: str, group: str, big_five: bool) -> list[str]:
+    """Compare modes offered for a player. FBref seasons and goalkeepers have
+    the default only; big five only for big-five players."""
+    if family == metrics.FBREF or group == "GK":
+        return [MODE_SHARED]
+    modes = [MODE_SHARED]
+    if big_five:
+        modes.append(MODE_BIG_FIVE)
+    modes.append(MODE_TRIAL)
+    return modes
+
+
+def mode_template(mode: str, family: str, group: str) -> list[str]:
+    """The features a mode compares on."""
+    if family == metrics.FBREF:
+        return list(FEATURE_TEMPLATES[group])
+    if mode == MODE_TRIAL:
+        return list(metrics.SHARED_SET)
+    keys = list(metrics.family_set(family, group))
+    if mode == MODE_BIG_FIVE:
+        keys += list(metrics.BIG_FIVE_EXTRAS)
+    return [k for k in keys if k not in NOT_IN_TEMPLATES]
+
+
+def _all_templates() -> list[list[str]]:
+    out = [list(t) for t in FEATURE_TEMPLATES.values()]
+    for family in (metrics.EUROPE, metrics.US):
+        for group in ("ATT", "MID", "DEF", "GK"):
+            for mode in MODES:
+                out.append(mode_template(mode, family, group))
+    return out
+
+
 # Every season total in a template (key passes, tackles, saves, dribbles,
-# xG Chain, goals added...). Rates, percentages, distances and the stored
-# per-90 columns are compared as they are.
+# passes, cards, xG Chain, goals added...). Rates, percentages, distances and
+# the stored per-90 columns are compared as they are.
 PER90_FEATURES = frozenset(
-    c for template in FEATURE_TEMPLATES.values() for c in template
+    c for template in _all_templates() for c in template
     if KIND.get(c) in SEASON_TOTAL_KINDS
 )
+
+
+def mode_pool(pool: pd.DataFrame, query_row, mode: str) -> pd.DataFrame:
+    """The rows a mode compares with: same position group always; the query's
+    family and season (shared), big-five players of that season (big five),
+    or both regions in the season and its paired season (trial)."""
+    season = query_row["Season"]
+    family = metrics.family_of(query_row.get("Source"))
+    fam = (pool["Source"].map(metrics.family_of) if "Source" in pool.columns
+           else pd.Series(metrics.FBREF, index=pool.index))
+    keep = pool["position_group"] == query_row["position_group"]
+    if mode == MODE_TRIAL:
+        keep &= fam.isin([metrics.EUROPE, metrics.US])
+        keep &= pool["Season"].isin([season, paired_season(season)])
+    else:
+        keep &= (fam == family) & (pool["Season"] == season)
+        if mode == MODE_BIG_FIVE:
+            keep &= pool["League"].isin(metrics.BIG_FIVE)
+    return pool[keep]
 
 
 def table_ref(table: str) -> str:
@@ -186,18 +282,25 @@ def table_ref(table: str) -> str:
     return f"`{GCP_PROJECT}.{BQ_DATASET}.{table}`"
 
 
-def _fetch_features(bq_client: bigquery.Client, position_group: str, season: str) -> pd.DataFrame:
-    """Pull feature table rows for a given position group and season from BigQuery."""
+def pool_sql(position_group: str, season: str, paired: bool = False) -> str:
+    """The position-pool query: one season, or with paired=True the season and
+    its paired season (the trial mode)."""
     table = table_ref(GOALKEEPER_TABLE if position_group == "GK" else OUTFIELD_TABLE)
-
-    sql = f"""
+    other = paired_season(season) if paired else None
+    seasons = f"Season IN ('{season}', '{other}')" if other else f"Season = '{season}'"
+    return f"""
         SELECT *
         FROM {table}
         WHERE position_group = '{position_group}'
-          AND Season = '{season}'
+          AND {seasons}
           AND minutes >= {MIN_MINUTES}
     """
-    return bq_client.query(sql).to_dataframe()
+
+
+def _fetch_features(bq_client: bigquery.Client, position_group: str, season: str,
+                    paired: bool = False) -> pd.DataFrame:
+    """Pull feature table rows for a given position group and season from BigQuery."""
+    return bq_client.query(pool_sql(position_group, season, paired)).to_dataframe()
 
 
 def _zscore_matrix(df: pd.DataFrame, feature_cols: list[str]) -> np.ndarray:
@@ -302,11 +405,73 @@ def rank_similar(
     )
 
 
+def rank_fixed(
+    pool_df: pd.DataFrame,
+    player: str,
+    season: str,
+    template: list[str],
+    top_n: int,
+) -> pd.DataFrame:
+    """A fixed-template ranking: season totals per 90, the candidates are the
+    rows with every template feature, z-score over them and the query player,
+    cosine, top N. Nothing is dropped. Raises IncompleteDataError when the
+    query player lacks a feature, NotEnoughStatsError for an empty template."""
+    if not template:
+        raise NotEnoughStatsError()
+    pool_reset = with_per90(pool_df.reset_index(drop=True), template)
+    query_mask = (pool_reset["Player"] == player) & (pool_reset["Season"] == season)
+    query_row = pool_reset[query_mask].iloc[0]
+    missing = [c for c in template if c not in pool_reset.columns or pd.isna(query_row[c])]
+    if missing:
+        raise IncompleteDataError(missing)
+    candidates = pool_reset[template].notna().all(axis=1) & ~query_mask
+
+    scored = pool_reset[candidates | query_mask].reset_index(drop=True).copy()
+    scored_query = (scored["Player"] == player) & (scored["Season"] == season)
+    X = _zscore_matrix(scored, template)
+    scored["similarity_score"] = _cosine_similarity(X[scored.index[scored_query][0]], X)
+    return (
+        scored[~scored_query]
+        .sort_values("similarity_score", ascending=False)
+        .head(top_n)[["Player", "Squad", "League", "Season", "position_group", "minutes", "similarity_score"]]
+        .reset_index(drop=True)
+    )
+
+
+def similar_in_pool(
+    pool_df: pd.DataFrame,
+    player: str,
+    season: str,
+    mode: str = MODE_SHARED,
+    top_n: int = 10,
+) -> pd.DataFrame:
+    """Similar players from an already fetched pool (the season, plus the
+    paired season for the trial mode). FBref seasons: rank_similar on
+    FEATURE_TEMPLATES, exactly as before. Newer seasons: rank_fixed on the
+    mode's template and pool. Raises ValueError when the player is not in the
+    pool or the mode is not offered for him."""
+    query = (pool_df["Player"] == player) & (pool_df["Season"] == season)
+    if not query.any():
+        raise ValueError(f"'{player}' ({season}) is not in the {MIN_MINUTES}+ minute pool.")
+    row = pool_df[query].iloc[0]
+    family = metrics.family_of(row.get("Source"))
+    group = row["position_group"]
+    big_five = metrics.is_big_five(row.get("Source"), row.get("League"))
+    if mode not in modes_for(family, group, big_five):
+        raise ValueError(f"'{mode}' is not available for {player} ({season}).")
+    if family == metrics.FBREF:
+        return rank_similar(pool_df[pool_df["Season"] == season], player, season,
+                            FEATURE_TEMPLATES[group], top_n)
+    return rank_fixed(mode_pool(pool_df, row, mode), player, season,
+                      mode_template(mode, family, group), top_n)
+
+
 def find_similar_players(
     player: str,
     season: str,
     top_n: int = 10,
     bq_client: bigquery.Client | None = None,
+    mode: str = MODE_SHARED,
 ) -> pd.DataFrame:
     """
     Find the top_n most similar players to a given player in a given season.
@@ -321,6 +486,9 @@ def find_similar_players(
         Number of similar players to return (default 10).
     bq_client : bigquery.Client, optional
         Reuse an existing client. If None, a new one is created.
+    mode : str
+        MODE_SHARED (default), MODE_BIG_FIVE or MODE_TRIAL (see modes_for).
+        The trial mode also fetches the paired season.
 
     Returns
     -------
@@ -333,6 +501,9 @@ def find_similar_players(
     NotEnoughStatsError
         When fewer than MIN_FEATURES template stats are usable (see
         select_features). It is a ValueError.
+    IncompleteDataError
+        A newer-season player lacks a stat of the mode's fixed template.
+        Also a ValueError.
     """
     if bq_client is None:
         bq_client = bigquery.Client(project=GCP_PROJECT)
@@ -359,10 +530,9 @@ def find_similar_players(
         raise ValueError(f"Player '{player}' not found for season '{season}'.")
 
     position_group = result.iloc[0]["position_group"]
-    feature_cols   = FEATURE_TEMPLATES[position_group]
 
-    # ── 2. Fetch full pool for that position group and season ─────────────────
-    pool_df = _fetch_features(bq_client, position_group, season)
+    # ── 2. Fetch full pool for that position group and season(s) ──────────────
+    pool_df = _fetch_features(bq_client, position_group, season, paired=mode == MODE_TRIAL)
 
     if pool_df.empty:
         raise ValueError(f"No data found for position group '{position_group}'.")
@@ -375,7 +545,7 @@ def find_similar_players(
             f"{MIN_MINUTES}-minute threshold and cannot be used as a query."
         )
 
-    return rank_similar(pool_df, player, season, feature_cols, top_n)
+    return similar_in_pool(pool_df, player, season, mode, top_n)
 
 
 def get_player_stats(

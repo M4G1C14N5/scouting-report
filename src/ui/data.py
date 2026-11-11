@@ -23,9 +23,12 @@ from src.similarity import (
     GCP_PROJECT,
     GOALKEEPER_TABLE,
     MIN_MINUTES,
+    MODE_SHARED,
+    MODE_TRIAL,
     OUTFIELD_TABLE,
-    find_similar_players,
     get_player_stats,
+    pool_sql,
+    similar_in_pool,
     table_ref,
 )
 
@@ -57,22 +60,17 @@ def player_stats(_bq, player: str, season: str) -> pd.Series:
 
 
 @st.cache_data(ttl=TTL, show_spinner="Loading the position pool…")
-def position_pool(_bq, position_group: str, season: str) -> pd.DataFrame:
+def position_pool(_bq, position_group: str, season: str, paired: bool = False) -> pd.DataFrame:
     """Everyone in the group and season with MIN_MINUTES+ minutes, fetched once and
-    shared by the Profile and Similar tabs."""
-    table = table_ref(GOALKEEPER_TABLE if position_group == "GK" else OUTFIELD_TABLE)
-
-    pool_sql = f"""
-        SELECT *
-        FROM {table}
-        WHERE position_group = '{position_group}'
-          AND Season = '{season}'
-          AND minutes >= {MIN_MINUTES}
-    """
-    return _bq.query(pool_sql).to_dataframe()
+    shared by the Profile and Similar tabs. paired=True adds the other region's
+    paired season (src.similarity.paired_season), for the trial compare mode."""
+    return _bq.query(pool_sql(position_group, season, paired)).to_dataframe()
 
 
 @st.cache_data(ttl=TTL, show_spinner="Finding similar players…")
-def similar_players(_bq, player: str, season: str, position_group: str) -> pd.DataFrame:
-    """Top SIMILAR_MAX matches. position_group is part of the cache key only."""
-    return find_similar_players(player=player, season=season, top_n=SIMILAR_MAX, bq_client=_bq)
+def similar_players(_bq, player: str, season: str, position_group: str,
+                    mode: str = MODE_SHARED) -> pd.DataFrame:
+    """Top SIMILAR_MAX matches in a compare mode, ranked on the cached position
+    pool (with the paired season for the trial mode)."""
+    pool = position_pool(_bq, position_group, season, paired=mode == MODE_TRIAL)
+    return similar_in_pool(pool, player, season, mode, SIMILAR_MAX)

@@ -102,30 +102,59 @@ def test_player_stats_wraps_get_player_stats(monkeypatch):
     assert seen == [("A", "2023-2024", bq)]  # second call served from cache
 
 
-def test_similar_players_asks_for_the_max_once(monkeypatch):
-    seen = []
+def test_position_pool_with_the_paired_season():
+    bq = FakeBQ(pd.DataFrame({"Player": ["A"]}))
+    data.position_pool(bq, "ATT", "2025-2026", paired=True)
+    data.position_pool(bq, "MID", "2025", paired=True)
+    assert norm(bq.calls[0]) == (
+        f"SELECT * FROM `{data.GCP_PROJECT}.{data.BQ_DATASET}.outfield_all` "
+        f"WHERE position_group = 'ATT' AND Season IN ('2025-2026', '2025') AND minutes >= 450")
+    assert "Season IN ('2025', '2025-2026')" in norm(bq.calls[1])
+    data.position_pool(bq, "ATT", "2025-2026")  # not paired: a different cache entry
+    assert norm(bq.calls[2]).endswith("Season = '2025-2026' AND minutes >= 450")
 
-    def fake(**kwargs):
-        seen.append(kwargs)
+
+def _record_pool(monkeypatch, seen):
+    def fake_pool(_bq, group, season, paired=False):
+        seen.append(("pool", group, season, paired))
+        return pd.DataFrame({"Player": ["A"]})
+
+    def fake_rank(pool, player, season, mode, top_n):
+        seen.append(("rank", player, season, mode, top_n))
         return pd.DataFrame({"Player": ["B"], "similarity_score": [0.9]})
 
-    monkeypatch.setattr(data, "find_similar_players", fake)
+    monkeypatch.setattr(data, "position_pool", fake_pool)
+    monkeypatch.setattr(data, "similar_in_pool", fake_rank)
+
+
+def test_similar_players_ranks_the_cached_pool_for_the_max_once(monkeypatch):
+    seen = []
+    _record_pool(monkeypatch, seen)
     bq = object()
-    data.similar_players(bq, "A", "2023-2024", "ATT")
-    data.similar_players(bq, "A", "2023-2024", "ATT")
-    assert seen == [{"player": "A", "season": "2023-2024", "top_n": data.SIMILAR_MAX, "bq_client": bq}]
-    data.similar_players(bq, "A", "2023-2024", "MID")  # position_group is part of the cache key
-    assert len(seen) == 2
+    data.similar_players(bq, "A", "2025-2026", "ATT", data.MODE_SHARED)
+    data.similar_players(bq, "A", "2025-2026", "ATT", data.MODE_SHARED)
+    assert seen == [("pool", "ATT", "2025-2026", False),
+                    ("rank", "A", "2025-2026", data.MODE_SHARED, data.SIMILAR_MAX)]
+    data.similar_players(bq, "A", "2025-2026", "MID", data.MODE_SHARED)  # group is in the cache key
+    assert len(seen) == 4
+
+
+def test_similar_players_trial_mode_fetches_the_paired_season(monkeypatch):
+    seen = []
+    _record_pool(monkeypatch, seen)
+    data.similar_players(object(), "A", "2025-2026", "ATT", data.MODE_TRIAL)
+    assert seen[0] == ("pool", "ATT", "2025-2026", True)
+    assert seen[1][3] == data.MODE_TRIAL
 
 
 def test_errors_are_not_cached(monkeypatch):
     calls = []
 
-    def boom(**kwargs):
+    def boom(*args, **kwargs):
         calls.append(1)
         raise RuntimeError("bigquery down")
 
-    monkeypatch.setattr(data, "find_similar_players", boom)
+    monkeypatch.setattr(data, "position_pool", boom)
     for _ in range(2):
         with pytest.raises(RuntimeError):
             data.similar_players(object(), "A", "2023-2024", "ATT")

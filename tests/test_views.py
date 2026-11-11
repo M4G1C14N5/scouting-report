@@ -118,7 +118,8 @@ def _run(script, *args) -> AppTest:
 @pytest.fixture
 def stub_similar(monkeypatch):
     monkeypatch.setattr(data, "similar_players",
-                        lambda _bq, player, season, group: fakes.similar_players(player, season, group))
+                        lambda _bq, player, season, group, mode=None: fakes.similar_players(
+                            player, season, group))
 
 
 # --- header ------------------------------------------------------------------
@@ -337,7 +338,7 @@ def test_similar_below_threshold(stub_similar):
 
 
 def test_similar_error_is_readable(monkeypatch):
-    def boom(_bq, player, season, group):
+    def boom(_bq, player, season, group, mode=None):
         raise RuntimeError("bigquery down")
 
     monkeypatch.setattr(data, "similar_players", boom)
@@ -348,7 +349,7 @@ def test_similar_error_is_readable(monkeypatch):
 def test_similar_not_enough_stats_shows_the_message_not_an_error(monkeypatch):
     from src.similarity import NotEnoughStatsError
 
-    def not_enough(_bq, player, season, group):
+    def not_enough(_bq, player, season, group, mode=None):
         raise NotEnoughStatsError()
 
     monkeypatch.setattr(data, "similar_players", not_enough)
@@ -577,3 +578,128 @@ def test_header_tiles_follow_the_family():
     assert ">xG<" not in europe and ">xAG<" not in europe  # most European leagues have no xG
     us = _markdown(_run(header_row_script, fakes.new_player_stats("US Forward 0", fakes.US_SEASON).to_dict()))
     assert ">xG<" in us and ">xA<" in us
+
+
+# --- similar: compare modes on the newer seasons -------------------------------
+
+def similar_new_script(player: str, season: str) -> None:
+    from src.ui.views import similar
+    from tests import fakes
+
+    row = fakes.new_player_stats(player, season)
+    similar.render(object(), fakes.new_position_pool(row["position_group"], season), row)
+
+
+@pytest.fixture
+def real_similarity(monkeypatch):
+    """The real similarity model on the fake newer-season pools."""
+    from src import similarity
+
+    def pool(_bq, group, season, paired=False):
+        return fakes.new_position_pool(group, season, paired=paired)
+
+    def similar_players(_bq, player, season, group, mode=similarity.MODE_SHARED):
+        frame = fakes.new_position_pool(group, season, paired=mode == similarity.MODE_TRIAL)
+        return similarity.similar_in_pool(frame, player, season, mode, data.SIMILAR_MAX)
+
+    monkeypatch.setattr(data, "position_pool", pool)
+    monkeypatch.setattr(data, "similar_players", similar_players)
+
+
+def _mode(at, mode: str) -> None:
+    at.selectbox(key="similar_mode").set_value(mode).run()
+    assert not at.exception, at.exception
+
+
+def test_similar_big_five_player_has_three_modes(real_similarity):
+    from src import similarity
+
+    at = _run(similar_new_script, "Prem Forward 3", fakes.EUROPE_SEASON)
+    control = at.selectbox(key="similar_mode")
+    assert control.options == [similarity.MODE_SHARED, similarity.MODE_BIG_FIVE, similarity.MODE_TRIAL]
+    assert control.value == similarity.MODE_SHARED
+    assert "Compare on" in _markdown(at)
+    assert "the same 20 stats" in _captions(at)
+    assert set(at.dataframe[0].value["League"]) >= {"League Two"}
+    assert similarity.BIG_FIVE_NOTE not in _captions(at)
+
+    _mode(at, similarity.MODE_BIG_FIVE)
+    assert similarity.BIG_FIVE_NOTE in _captions(at)
+    assert set(at.dataframe[0].value["League"]) <= {"Premier League", "La Liga"}
+    assert "the same 25 stats" in _captions(at)
+
+    _mode(at, similarity.MODE_TRIAL)
+    assert similarity.TRIAL_NOTE in "\n".join(i.value for i in at.info)
+    assert "2025" in set(at.dataframe[0].value["Season"])  # US players of the paired season
+
+
+def test_similar_other_european_player_has_no_big_five_mode(real_similarity):
+    from src import similarity
+
+    at = _run(similar_new_script, "Two Forward 0", fakes.EUROPE_SEASON)
+    assert at.selectbox(key="similar_mode").options == [similarity.MODE_SHARED, similarity.MODE_TRIAL]
+
+
+def test_similar_us_player_modes_and_trial(real_similarity):
+    from src import similarity
+
+    at = _run(similar_new_script, "US Forward 1", fakes.US_SEASON)
+    assert at.selectbox(key="similar_mode").options == [similarity.MODE_SHARED, similarity.MODE_TRIAL]
+    assert set(at.dataframe[0].value["League"]) == {"MLS"}
+    _mode(at, similarity.MODE_TRIAL)
+    assert "2025-26" in set(at.dataframe[0].value["Season"])
+
+
+def test_similar_incomplete_player_gets_the_message_and_can_switch_mode(real_similarity):
+    from src import similarity
+
+    at = _run(similar_new_script, "Gappy Forward", fakes.EUROPE_SEASON)
+    assert ("This player&#x27;s data is incomplete for this comparison (missing: Dribbled Past). "
+            "Try another mode.") in _markdown(at)
+    assert len(at.dataframe) == 0 and not at.error
+    _mode(at, similarity.MODE_TRIAL)
+    assert len(at.dataframe) == 1
+
+
+def test_similar_keeper_has_the_shared_mode_only(real_similarity):
+    from src import similarity
+
+    at = _run(similar_new_script, "Two Keeper 1", fakes.EUROPE_SEASON)
+    control = at.selectbox(key="similar_mode")
+    assert control.options == [similarity.MODE_SHARED] and control.disabled
+    assert len(at.dataframe[0].value) == 6
+
+
+def test_similar_fbref_player_keeps_the_fbref_method(stub_similar):
+    from src import similarity
+
+    at = _run(similar_script, "Mohamed Salah", fakes.LATEST)
+    assert at.selectbox(key="similar_mode").options == [similarity.MODE_SHARED]
+    assert "compared only with players who have all of those stats" in _captions(at)
+
+
+def test_similar_trial_without_paired_season_says_so(real_similarity):
+    from src import similarity
+
+    at = _run(similar_new_script, "Late US Forward 0", fakes.US_LATE)
+    _mode(at, similarity.MODE_TRIAL)
+    assert "The paired season (2026-27) is not in the data yet" in _captions(at)
+    assert "2026 players only" in _captions(at)
+    assert set(at.dataframe[0].value["Season"]) == {"2026"}
+
+
+def test_similar_trial_compare_view_reaches_the_paired_season(real_similarity):
+    from src import similarity
+
+    at = _run(similar_new_script, "US Forward 1", fakes.US_SEASON)
+    _mode(at, similarity.MODE_TRIAL)
+    seasons = list(at.dataframe[0].value["Season"])
+    row = next(i for i, season in enumerate(seasons) if season == "2025-26")
+    at.session_state["similar_table"] = {"selection": {"rows": [row], "columns": []}}
+    at.run()
+    assert not at.exception
+    assert "Comparison unavailable" not in _captions(at)
+    assert len(at.get("plotly_chart")) == 1
+    traces = json.loads(at.get("plotly_chart")[0].proto.spec)["data"]
+    markers = [t for t in traces if t.get("mode") == "markers"]
+    assert len(markers[0]["x"]) == 7  # the seven shared stats

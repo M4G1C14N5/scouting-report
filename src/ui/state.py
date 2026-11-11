@@ -15,8 +15,9 @@ PLAYER = "player_pick"       # player search selectbox
 SWITCH = "season_switch"     # per-player season selectbox
 SWITCH_FOR = "_switch_for"   # which player SWITCH was last set for
 COMPARE = "profile_compare"  # Profile tab: "Compare with" selectbox (same league or all leagues)
+SIMILAR_MODE = "similar_mode"  # Similar tab: "Compare on" selectbox
 SIMILAR_TABLE = "similar_table"
-SIMILAR_FOR = "_similar_for"  # (player, season) the table selection belongs to
+SIMILAR_FOR = "_similar_for"  # (player, season, mode) the table selection belongs to
 
 
 def goto(player: str, season: str) -> None:
