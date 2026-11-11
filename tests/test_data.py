@@ -105,11 +105,11 @@ def test_player_stats_wraps_get_player_stats(monkeypatch):
 def test_position_pool_with_the_paired_season():
     bq = FakeBQ(pd.DataFrame({"Player": ["A"]}))
     data.position_pool(bq, "ATT", "2025-2026", paired=True)
-    data.position_pool(bq, "MID", "2025", paired=True)
+    data.position_pool(bq, "MID", "2026", paired=True)
     assert norm(bq.calls[0]) == (
         f"SELECT * FROM `{data.GCP_PROJECT}.{data.BQ_DATASET}.outfield_all` "
-        f"WHERE position_group = 'ATT' AND Season IN ('2025-2026', '2025') AND minutes >= 450")
-    assert "Season IN ('2025', '2025-2026')" in norm(bq.calls[1])
+        f"WHERE position_group = 'ATT' AND Season IN ('2025-2026', '2026') AND minutes >= 450")
+    assert "Season IN ('2026', '2025-2026')" in norm(bq.calls[1])
     data.position_pool(bq, "ATT", "2025-2026")  # not paired: a different cache entry
     assert norm(bq.calls[2]).endswith("Season = '2025-2026' AND minutes >= 450")
 

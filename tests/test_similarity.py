@@ -441,8 +441,9 @@ def test_mode_names():
 
 
 @pytest.mark.parametrize("season, paired", [
-    ("2025", "2025-2026"), ("2024", "2024-2025"), ("2026", "2026-2027"),
-    ("2025-2026", "2025"), ("2024-2025", "2024"), ("not a season", None),
+    # paired by the year the season ends: US Y with the European (Y-1)-Y
+    ("2026", "2025-2026"), ("2025", "2024-2025"), ("2024", "2023-2024"),
+    ("2025-2026", "2026"), ("2024-2025", "2025"), ("not a season", None),
 ])
 def test_paired_season(season, paired):
     assert similarity.paired_season(season) == paired
@@ -462,9 +463,12 @@ def test_modes_offered(family, group, big_five, modes):
 
 def test_mode_templates_are_fixed_family_sets():
     for group in ("ATT", "MID", "DEF"):
-        assert similarity.mode_template(SHARED, "europe", group) == list(metrics.EUROPE_OUTFIELD)
-        assert similarity.mode_template(BIG5, "europe", group) == [
-            *metrics.EUROPE_OUTFIELD, *metrics.BIG_FIVE_EXTRAS]
+        # dribble success % is 0/0 for a player with no dribbles: compared through
+        # dribbles attempted and completed instead (it stays a Profile and Stats bar)
+        europe = [k for k in metrics.EUROPE_OUTFIELD if k != "dribble_success_pct"]
+        assert similarity.mode_template(SHARED, "europe", group) == europe
+        assert similarity.mode_template(BIG5, "europe", group) == [*europe, *metrics.BIG_FIVE_EXTRAS]
+        assert "dribbles_attempted" in europe and "dribble_success_pct" in metrics.EUROPE_OUTFIELD
         assert similarity.mode_template(TRIAL, "europe", group) == list(metrics.SHARED_SET)
         assert similarity.mode_template(TRIAL, "us", group) == list(metrics.SHARED_SET)
         # the goals added total is the sum of its six parts: compared once, through the parts
@@ -497,7 +501,8 @@ def test_shared_mode_compares_across_every_european_league_on_the_europe_set():
                                      SHARED, top_n=50)
     assert set(out["League"]) == {"Premier League", "La Liga", "League Two"}
     assert "Gappy Forward" not in set(out["Player"])  # lacks a template stat: never a candidate
-    assert len(out) == 19  # 21 European forwards, minus the query and Gappy Forward
+    assert "No Dribbles Forward" in set(out["Player"])  # 0/0 dribble success % does not exclude
+    assert len(out) == 20  # 22 European forwards, minus the query and Gappy Forward
     assert list(out.columns) == ["Player", "Squad", "League", "Season", "position_group",
                                  "minutes", "similarity_score"]
 
@@ -528,13 +533,36 @@ def test_trial_mode_mixes_europe_and_the_paired_us_season():
     us_pool = fakes.new_position_pool("ATT", fakes.US_SEASON, paired=True)
     out = similarity.similar_in_pool(us_pool, "US Forward 0", fakes.US_SEASON, TRIAL, top_n=50)
     assert set(out["Season"]) == {fakes.EUROPE_SEASON, fakes.US_SEASON}
-    assert len(out) == 7 + 21
+    assert len(out) == 7 + 22
 
 
-def test_trial_mode_without_a_paired_season_in_the_data_has_us_players_only():
-    pool = fakes.new_position_pool("ATT", fakes.US_LATE, paired=True)
-    out = similarity.similar_in_pool(pool, "Late US Forward 0", fakes.US_LATE, TRIAL, top_n=50)
-    assert set(out["Season"]) == {fakes.US_LATE} and len(out) == 5
+def test_a_player_without_dribbles_is_compared_not_blocked():
+    out = similarity.similar_in_pool(_europe_pool(), fakes.NO_DRIBBLES, fakes.EUROPE_SEASON,
+                                     SHARED, top_n=50)
+    assert len(out) == 20
+
+
+def test_trial_mode_without_a_paired_season_says_so():
+    msg = "No paired European season with matching stats for this season."
+    assert similarity.NO_PAIRED_SEASON == msg
+    pool = fakes.new_position_pool("ATT", fakes.US_EARLY, paired=True)  # 2023-24 not loaded
+    with pytest.raises(similarity.NoPairedSeasonError) as err:
+        similarity.similar_in_pool(pool, "Early US Forward 0", fakes.US_EARLY, TRIAL, top_n=50)
+    assert str(err.value) == msg
+    # 2023-24 is an FBref season: its rows are no trial partner either
+    fbref = fakes.position_pool("ATT", fakes.LATEST)
+    assert set(fbref["Season"]) == {"2023-2024"}
+    with pytest.raises(similarity.NoPairedSeasonError):
+        similarity.similar_in_pool(pd.concat([pool, fbref], ignore_index=True), "Early US Forward 0",
+                                   fakes.US_EARLY, TRIAL, top_n=50)
+    # the shared mode still works for him
+    assert len(similarity.similar_in_pool(pool, "Early US Forward 0", fakes.US_EARLY, SHARED)) == 5
+
+
+def test_trial_note_says_how_seasons_are_paired():
+    assert similarity.TRIAL_NOTE.startswith(
+        "Trial: compares European and US players on the seven stats both regions have")
+    assert "US 2026 with the European 2025-26" in similarity.TRIAL_NOTE
 
 
 def test_trial_mode_is_not_offered_for_keepers_or_fbref():
@@ -585,5 +613,5 @@ def test_find_similar_players_in_trial_mode_fetches_the_paired_season():
     bq = FakeBQ(pool, "ATT")
     out = similarity.find_similar_players("Two Forward 0", fakes.EUROPE_SEASON, top_n=50,
                                           bq_client=bq, mode=TRIAL)
-    assert "Season IN ('2025-2026', '2025')" in " ".join(bq.calls[-1].split())
+    assert "Season IN ('2025-2026', '2026')" in " ".join(bq.calls[-1].split())
     assert fakes.US_SEASON in set(out["Season"])

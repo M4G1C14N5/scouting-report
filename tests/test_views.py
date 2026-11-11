@@ -619,18 +619,18 @@ def test_similar_big_five_player_has_three_modes(real_similarity):
     assert control.options == [similarity.MODE_SHARED, similarity.MODE_BIG_FIVE, similarity.MODE_TRIAL]
     assert control.value == similarity.MODE_SHARED
     assert "Compare on" in _markdown(at)
-    assert "the same 20 stats" in _captions(at)
+    assert "the same 19 stats" in _captions(at)
     assert set(at.dataframe[0].value["League"]) >= {"League Two"}
     assert similarity.BIG_FIVE_NOTE not in _captions(at)
 
     _mode(at, similarity.MODE_BIG_FIVE)
     assert similarity.BIG_FIVE_NOTE in _captions(at)
     assert set(at.dataframe[0].value["League"]) <= {"Premier League", "La Liga"}
-    assert "the same 25 stats" in _captions(at)
+    assert "the same 24 stats" in _captions(at)
 
     _mode(at, similarity.MODE_TRIAL)
     assert similarity.TRIAL_NOTE in "\n".join(i.value for i in at.info)
-    assert "2025" in set(at.dataframe[0].value["Season"])  # US players of the paired season
+    assert "2026" in set(at.dataframe[0].value["Season"])  # US players of the paired season
 
 
 def test_similar_other_european_player_has_no_big_five_mode(real_similarity):
@@ -681,11 +681,11 @@ def test_similar_fbref_player_keeps_the_fbref_method(stub_similar):
 def test_similar_trial_without_paired_season_says_so(real_similarity):
     from src import similarity
 
-    at = _run(similar_new_script, "Late US Forward 0", fakes.US_LATE)
+    at = _run(similar_new_script, "Early US Forward 0", fakes.US_EARLY)
+    assert len(at.dataframe) == 1  # the shared mode works
     _mode(at, similarity.MODE_TRIAL)
-    assert "The paired season (2026-27) is not in the data yet" in _captions(at)
-    assert "2026 players only" in _captions(at)
-    assert set(at.dataframe[0].value["Season"]) == {"2026"}
+    assert "No paired European season with matching stats for this season." in _markdown(at)
+    assert len(at.dataframe) == 0 and not at.error
 
 
 def test_similar_trial_compare_view_reaches_the_paired_season(real_similarity):

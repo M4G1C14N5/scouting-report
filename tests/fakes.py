@@ -85,11 +85,14 @@ def similar_players(player: str, season: str, group: str) -> pd.DataFrame:
 # --- newer seasons (API-Football, Understat, American Soccer Analysis) -------------
 
 EUROPE_SEASON = "2025-2026"
-US_SEASON = "2025"      # pairs with EUROPE_SEASON in the trial mode
-US_LATE = "2026"        # pairs with 2026-2027, which is not in the data
+US_SEASON = "2026"      # pairs with EUROPE_SEASON (the European season ending in 2026)
+US_EARLY = "2024"       # pairs with 2023-2024, an FBref season: no trial partner
 BIG_FIVE_SOURCE = "API-Football + Understat"
 MATCH_DATA_SOURCE = "API-Football match data"
 US_SOURCE = "American Soccer Analysis"
+
+# No Dribbles attempted no dribbles, so his dribble success % is 0/0 (null).
+NO_DRIBBLES = "No Dribbles Forward"
 
 # Player, Season, Squad, League, position_group, minutes, Source
 NEW_ROWS = [
@@ -100,9 +103,10 @@ NEW_ROWS = [
     *[(f"Two Forward {i}", EUROPE_SEASON, f"Two Club {i}", "League Two", "ATT",
        1100 + 130 * i, MATCH_DATA_SOURCE) for i in range(8)],
     ("Gappy Forward", EUROPE_SEASON, "Two Club 9", "League Two", "ATT", 1500, MATCH_DATA_SOURCE),
+    (NO_DRIBBLES, EUROPE_SEASON, "Two Club 10", "League Two", "ATT", 1400, MATCH_DATA_SOURCE),
     *[(f"US Forward {i}", US_SEASON, f"US Club {i}", "MLS", "ATT", 950 + 140 * i, US_SOURCE)
       for i in range(8)],
-    *[(f"Late US Forward {i}", US_LATE, f"US Club {i}", "USL League One", "ATT",
+    *[(f"Early US Forward {i}", US_EARLY, f"US Club {i}", "USL League One", "ATT",
        1200 + 100 * i, US_SOURCE) for i in range(6)],
     *[(f"Prem Keeper {i}", EUROPE_SEASON, f"Prem Club {i}", "Premier League", "GK",
        1800 + 200 * i, BIG_FIVE_SOURCE) for i in range(4)],
@@ -144,6 +148,8 @@ def new_season_frame(table: str) -> pd.DataFrame:
         rec.update(_family_values(group, source, rng))
         if player == "Gappy Forward":
             rec[GAPPY_MISSING] = np.nan
+        if player == NO_DRIBBLES:
+            rec.update(dribbles_attempted=0.0, dribbles_completed=0.0, dribble_success_pct=np.nan)
         rec.update(Player=player, Nation="ENG", Position="FW" if group == "ATT" else group,
                    Squad=squad, League=league, Age=25, Born=2000, Season=season,
                    position_group=group, minutes=minutes, nineties_played=round(minutes / 90, 1),

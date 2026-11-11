@@ -7,7 +7,8 @@ import pandas as pd
 import streamlit as st
 
 from src import similarity
-from src.similarity import MIN_CANDIDATES, MIN_FEATURES, MIN_MINUTES, IncompleteDataError, NotEnoughStatsError
+from src.similarity import (MIN_CANDIDATES, MIN_FEATURES, MIN_MINUTES, IncompleteDataError,
+                            NoPairedSeasonError, NotEnoughStatsError)
 from src.ui import build, data, metrics, state, stats, theme, viz
 
 METHOD = ("Method: cosine similarity on z-scored stats within the position pool "
@@ -17,6 +18,7 @@ NOT_ENOUGH_BODY = (f"Similarity needs at least {MIN_FEATURES} of the position's 
                    f"has and at least {MIN_CANDIDATES} other players also have. "
                    "The data for this player-season has fewer.")
 INCOMPLETE_TITLE = "Incomplete data for this comparison"
+NO_PAIRED_TITLE = "No trial comparison for this season"
 
 COLUMN_CONFIG = {
     "Player": st.column_config.TextColumn("Player", width="medium"),
@@ -91,6 +93,9 @@ def render(bq, pool: pd.DataFrame | None, row) -> None:
     except IncompleteDataError as exc:
         st.markdown(theme.empty_state_html(INCOMPLETE_TITLE, str(exc)), unsafe_allow_html=True)
         return
+    except NoPairedSeasonError as exc:
+        st.markdown(theme.empty_state_html(NO_PAIRED_TITLE, str(exc)), unsafe_allow_html=True)
+        return
     except NotEnoughStatsError as exc:
         st.markdown(theme.empty_state_html(str(exc), NOT_ENOUGH_BODY), unsafe_allow_html=True)
         return
@@ -104,7 +109,6 @@ def render(bq, pool: pd.DataFrame | None, row) -> None:
             compare_pool = data.position_pool(bq, group, season, paired=True)
         except Exception:  # noqa: BLE001 - the table still shows; the dumbbell says it can't
             compare_pool = None
-        _paired_note(compare_pool, season)
 
     if matches.empty:
         plural = metrics.POSITION_PLURALS.get(group, "players")
@@ -133,17 +137,6 @@ def render(bq, pool: pd.DataFrame | None, row) -> None:
     _compare(compare_pool, row, other, group, mode)
     st.button(f"View {other['Player']}'s profile", key="view_profile", type="primary",
               on_click=state.goto, args=(str(other["Player"]), str(other["Season"])))
-
-
-def _paired_note(pool: pd.DataFrame | None, season: str) -> None:
-    """Say so when the paired season is not in the data (US 2026 pairs with 2026-27,
-    which has not started)."""
-    paired = similarity.paired_season(season)
-    if pool is None or paired is None or "Season" not in pool.columns:
-        return
-    if not (pool["Season"] == paired).any():
-        st.caption(f"The paired season ({stats.short_season(paired)}) is not in the data yet, "
-                   f"so this compares with {stats.short_season(season)} players only.")
 
 
 def _compare(pool: pd.DataFrame | None, row, other: pd.Series, group: str, mode: str) -> None:

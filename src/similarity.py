@@ -187,13 +187,20 @@ BIG_FIVE_NOTE = "Big five only: uses Understat stats that the other leagues do n
 TRIAL_NOTE = ("Trial: compares European and US players on the seven stats both regions have "
               "(goals, assists, shots, shots on target, key passes, passes, pass completion). "
               "League strength differs a lot between these leagues, so read a match as a "
-              "similar style of play, not a similar level.")
+              "similar style of play, not a similar level. Seasons are paired by the year they "
+              "end: US 2026 with the European 2025-26, US 2025 with 2024-25.")
+NO_PAIRED_SEASON = "No paired European season with matching stats for this season."
 INCOMPLETE = ("This player's data is incomplete for this comparison (missing: {missing}). "
               "Try another mode.")
 
-# The goals added total is the sum of its six parts, which are all in the US
-# set: comparing on both would count it twice. It stays a Profile bar.
-NOT_IN_TEMPLATES = frozenset({"goals_added"})
+# Family stats left out of the similarity templates (they stay Profile and
+# Stats bars):
+#   goals_added          the sum of its six parts, which are all in the US set:
+#                        comparing on both would count it twice
+#   dribble_success_pct  0/0 (null) for a player who attempted no dribbles, which
+#                        would exclude him; dribbles attempted and completed
+#                        (per 90) carry the dribbling instead
+NOT_IN_TEMPLATES = frozenset({"goals_added", "dribble_success_pct"})
 
 
 class IncompleteDataError(ValueError):
@@ -204,15 +211,24 @@ class IncompleteDataError(ValueError):
         super().__init__(INCOMPLETE.format(missing=", ".join(metrics.label(c) for c in missing)))
 
 
+class NoPairedSeasonError(ValueError):
+    """The trial mode has no other-region season with the shared stats (it is
+    missing, or an FBref season)."""
+
+    def __init__(self) -> None:
+        super().__init__(NO_PAIRED_SEASON)
+
+
 def paired_season(season: str) -> str | None:
-    """The other region's season for the trial mode: US year Y pairs with the
-    European Y-(Y+1), and the European Y-(Y+1) with US Y."""
+    """The other region's season for the trial mode, by the year the season
+    ends: US year Y pairs with the European (Y-1)-Y, and the European (Y-1)-Y
+    with US Y (US 2026 <-> 2025-26)."""
     text = str(season)
     if text.isdigit() and len(text) == 4:
-        return f"{text}-{int(text) + 1}"
+        return f"{int(text) - 1}-{text}"
     head, sep, tail = text.partition("-")
     if sep and head.isdigit() and tail.isdigit() and len(head) == len(tail) == 4:
-        return head
+        return tail
     return None
 
 
@@ -462,8 +478,10 @@ def similar_in_pool(
     if family == metrics.FBREF:
         return rank_similar(pool_df[pool_df["Season"] == season], player, season,
                             FEATURE_TEMPLATES[group], top_n)
-    return rank_fixed(mode_pool(pool_df, row, mode), player, season,
-                      mode_template(mode, family, group), top_n)
+    compared = mode_pool(pool_df, row, mode)
+    if mode == MODE_TRIAL and not (compared["Season"] == paired_season(season)).any():
+        raise NoPairedSeasonError()  # FBref rows never count: mode_pool keeps Europe and US
+    return rank_fixed(compared, player, season, mode_template(mode, family, group), top_n)
 
 
 def find_similar_players(
