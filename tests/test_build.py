@@ -266,3 +266,34 @@ def test_similar_table_renames_for_display():
     out = build.similar_table(sim)
     assert tuple(out.columns) == build.SIMILAR_COLUMNS
     assert out.iloc[0].tolist() == ["B", "Club B", "Serie A", "2023-2024", "Forward", 2000, 0.912]
+
+
+# --- fixed family sets ---------------------------------------------------------
+
+def test_profile_rows_with_a_layout_keep_missing_metrics_as_n_a():
+    pool = _def_pool()
+    player = pool.iloc[2]  # C has no tackles_won
+    layout = {"Defending": ("tackles_total", "tackles_won", "interceptions"),
+              "Shooting": ("goals_per_90",)}
+    rows = build.profile_rows(pool, player, "DEF", layout=layout, keep_missing=True)
+    assert list(rows) == ["Defending", "Shooting"]
+    defending = {r.key: r for r in rows["Defending"]}
+    assert list(defending) == ["tackles_total", "tackles_won", "interceptions"]
+    # missing for the player, and missing from the pool altogether: both n/a, never dropped
+    for key, label in (("tackles_won", "Tackles Won / 90"), ("interceptions", "Interceptions / 90")):
+        assert defending[key].pct is None and defending[key].text == "n/a"
+        assert defending[key].label == label
+    assert defending["tackles_total"].pct == 62.5
+
+
+def test_profile_rows_layout_defaults_to_the_fbref_profile():
+    pool = _def_pool()
+    assert build.profile_rows(pool, pool.iloc[0], "DEF") == build.profile_rows(
+        pool, pool.iloc[0], "DEF", layout=build.metrics.PROFILE_METRICS["DEF"])
+
+
+def test_compare_lists_skip_n_a_rows():
+    a = {"Shooting": [build.PctRow("g", "Goals", 80.0, 1.0), build.PctRow("x", "xG", None, None, "n/a")]}
+    b = {"Shooting": [build.PctRow("g", "Goals", 40.0, 1.0), build.PctRow("x", "xG", 20.0, 1.0)]}
+    assert build.compare_lists(a, b) == (["Goals"], [80.0], [40.0])
+    assert build.compare_lists(b, a) == (["Goals"], [40.0], [80.0])

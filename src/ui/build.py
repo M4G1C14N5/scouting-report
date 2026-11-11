@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, NamedTuple
+from typing import Any, Mapping, NamedTuple, Sequence
 
 import pandas as pd
 
@@ -16,9 +16,12 @@ SIMILAR_COLUMNS = ("Player", "Club", "League", "Season", "Position", "Minutes", 
 class PctRow(NamedTuple):
     key: str
     label: str
-    pct: float
-    value: float  # raw value, or the per-90 rate when the row is ranked per 90
+    pct: float | None  # None: the metric is missing ("n/a" rows, see profile_rows)
+    value: float | None  # raw value, or the per-90 rate when the row is ranked per 90
     text: str = ""  # display text for `value` (two decimals for a per-90 rate)
+
+
+NOT_AVAILABLE = "n/a"
 
 
 def fmt_value(key: str, value: Any) -> str:
@@ -33,66 +36,93 @@ def same_league_pool(pool: pd.DataFrame, league: Any) -> pd.DataFrame:
     return pool[pool["League"] == league]
 
 
+def _row_label(key: str, per90: bool) -> str:
+    label = metrics.label(key)
+    if per90 and not label.endswith("/ 90"):
+        label = f"{label} / 90"
+    return label
+
+
 def profile_rows(pool: pd.DataFrame, player_row: Mapping[str, Any], group: str,
-                 min_coverage: float = 0.0) -> dict[str, list[PctRow]]:
+                 min_coverage: float = 0.0,
+                 layout: Mapping[str, Sequence[str]] | None = None,
+                 keep_missing: bool = False) -> dict[str, list[PctRow]]:
     """Percentile rows per category for the group's curated metrics.
+
+    `layout` ({category: metrics}) defaults to the FBref profile
+    (metrics.PROFILE_METRICS); the newer seasons pass their family set.
 
     Counting stats (the kinds metrics.PER90_COMPUTED_KINDS) are ranked per 90
     minutes: a raw season total mostly measures minutes played. Pool rows
     without 90s played drop out of those rankings. Stored per-90 columns,
     tallies, rates and ratios are ranked as they are.
 
-    Metrics missing from the pool or blank for the player are skipped, and
-    so are categories left empty. A metric that fewer than `min_coverage` of
-    the pool's rows have a value for is skipped too: a rank against a few
-    players says little. Coverage counts blank values in the column, not
-    rows dropped from a per-90 ranking."""
+    By default, metrics missing from the pool or blank for the player are
+    skipped, and so are categories left empty. A metric that fewer than
+    `min_coverage` of the pool's rows have a value for is skipped too: a rank
+    against a few players says little. Coverage counts blank values in the
+    column, not rows dropped from a per-90 ranking.
+
+    keep_missing=True (the fixed family sets) never skips: a metric that
+    cannot be ranked gets a row with pct None and the text "n/a", so every
+    player shows the same bars."""
+    if layout is None:
+        layout = metrics.PROFILE_METRICS.get(group, {})
     out: dict[str, list[PctRow]] = {}
-    for category, keys in metrics.PROFILE_METRICS.get(group, {}).items():
+    for category, keys in layout.items():
         rows: list[PctRow] = []
         for key in keys:
-            if key not in pool.columns:
-                continue
-            if min_coverage and pool[key].notna().mean() < min_coverage:
-                continue
-            higher_is_better = key not in metrics.LOWER_IS_BETTER
-            if metrics.KIND.get(key) in metrics.PER90_COMPUTED_KINDS:
-                if "nineties_played" not in pool.columns:
-                    continue
-                value = stats.per90(player_row.get(key), player_row.get("nineties_played"))
-                if value is None:
-                    continue
-                nineties = pd.to_numeric(pool["nineties_played"], errors="coerce")
-                ranked = pd.to_numeric(pool[key], errors="coerce") / nineties.where(nineties > 0)
-                label = metrics.label(key)
-                if not label.endswith("/ 90"):
-                    label = f"{label} / 90"
-                text = stats.fmt_number(value, "dec2")
-            else:
-                value = stats.to_float(player_row.get(key))
-                if value is None:
-                    continue
-                ranked, label, text = pool[key], metrics.label(key), fmt_value(key, value)
-            pct = stats.percentile_of(ranked, value, higher_is_better=higher_is_better)
-            if pct is None:
-                continue
-            rows.append(PctRow(key, label, pct, value, text))
+            row = _pct_row(pool, player_row, key, min_coverage)
+            if row is None and keep_missing:
+                per90 = metrics.KIND.get(key) in metrics.PER90_COMPUTED_KINDS
+                row = PctRow(key, _row_label(key, per90), None, None, NOT_AVAILABLE)
+            if row is not None:
+                rows.append(row)
         if rows:
             out[category] = rows
     return out
 
 
+def _pct_row(pool: pd.DataFrame, player_row: Mapping[str, Any], key: str,
+             min_coverage: float) -> PctRow | None:
+    """One ranked row, or None when the metric cannot be ranked."""
+    if key not in pool.columns:
+        return None
+    if min_coverage and pool[key].notna().mean() < min_coverage:
+        return None
+    higher_is_better = key not in metrics.LOWER_IS_BETTER
+    if metrics.KIND.get(key) in metrics.PER90_COMPUTED_KINDS:
+        if "nineties_played" not in pool.columns:
+            return None
+        value = stats.per90(player_row.get(key), player_row.get("nineties_played"))
+        if value is None:
+            return None
+        nineties = pd.to_numeric(pool["nineties_played"], errors="coerce")
+        ranked = pd.to_numeric(pool[key], errors="coerce") / nineties.where(nineties > 0)
+        label, text = _row_label(key, True), stats.fmt_number(value, "dec2")
+    else:
+        value = stats.to_float(player_row.get(key))
+        if value is None:
+            return None
+        ranked, label, text = pool[key], metrics.label(key), fmt_value(key, value)
+    pct = stats.percentile_of(ranked, value, higher_is_better=higher_is_better)
+    if pct is None:
+        return None
+    return PctRow(key, label, pct, value, text)
+
+
 def compare_lists(a_rows: Mapping[str, list[PctRow]],
                   b_rows: Mapping[str, list[PctRow]]) -> tuple[list[str], list[float], list[float]]:
-    """Labels and both players' percentiles for the metrics both have, in A's order."""
-    b_lookup = {row.key: row for rows in b_rows.values() for row in rows}
+    """Labels and both players' percentiles for the metrics both have, in A's
+    order. n/a rows (no percentile) are left out."""
+    b_lookup = {row.key: row for rows in b_rows.values() for row in rows if row.pct is not None}
     labels: list[str] = []
     a_vals: list[float] = []
     b_vals: list[float] = []
     for rows in a_rows.values():
         for row in rows:
             other = b_lookup.get(row.key)
-            if other is None:
+            if other is None or row.pct is None:
                 continue
             labels.append(row.label)
             a_vals.append(row.pct)

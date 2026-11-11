@@ -80,3 +80,94 @@ def similar_players(player: str, season: str, group: str) -> pd.DataFrame:
     out = others[["Player", "Squad", "League", "Season", "position_group", "minutes"]].copy()
     out["similarity_score"] = np.linspace(0.95, 0.5, len(out)) if len(out) else []
     return out
+
+
+# --- newer seasons (API-Football, Understat, American Soccer Analysis) -------------
+
+EUROPE_SEASON = "2025-2026"
+US_SEASON = "2025"      # pairs with EUROPE_SEASON in the trial mode
+US_LATE = "2026"        # pairs with 2026-2027, which is not in the data
+BIG_FIVE_SOURCE = "API-Football + Understat"
+MATCH_DATA_SOURCE = "API-Football match data"
+US_SOURCE = "American Soccer Analysis"
+
+# Player, Season, Squad, League, position_group, minutes, Source
+NEW_ROWS = [
+    *[(f"Prem Forward {i}", EUROPE_SEASON, f"Prem Club {i}", "Premier League", "ATT",
+       900 + 150 * i, BIG_FIVE_SOURCE) for i in range(8)],
+    *[(f"Liga Forward {i}", EUROPE_SEASON, f"Liga Club {i}", "La Liga", "ATT",
+       1000 + 120 * i, BIG_FIVE_SOURCE) for i in range(4)],
+    *[(f"Two Forward {i}", EUROPE_SEASON, f"Two Club {i}", "League Two", "ATT",
+       1100 + 130 * i, MATCH_DATA_SOURCE) for i in range(8)],
+    ("Gappy Forward", EUROPE_SEASON, "Two Club 9", "League Two", "ATT", 1500, MATCH_DATA_SOURCE),
+    *[(f"US Forward {i}", US_SEASON, f"US Club {i}", "MLS", "ATT", 950 + 140 * i, US_SOURCE)
+      for i in range(8)],
+    *[(f"Late US Forward {i}", US_LATE, f"US Club {i}", "USL League One", "ATT",
+       1200 + 100 * i, US_SOURCE) for i in range(6)],
+    *[(f"Prem Keeper {i}", EUROPE_SEASON, f"Prem Club {i}", "Premier League", "GK",
+       1800 + 200 * i, BIG_FIVE_SOURCE) for i in range(4)],
+    *[(f"Two Keeper {i}", EUROPE_SEASON, f"Two Club {i}", "League Two", "GK",
+       2000 + 150 * i, MATCH_DATA_SOURCE) for i in range(3)],
+]
+# Gappy Forward lacks this one stat of the European set.
+GAPPY_MISSING = "dribbled_past"
+
+
+def _family_values(group: str, source: str, rng) -> dict[str, float]:
+    from src.ui import metrics
+
+    if group == "GK":
+        keys = metrics.EUROPE_GOALKEEPER
+    elif source == US_SOURCE:
+        keys = metrics.US_OUTFIELD
+    else:
+        keys = metrics.EUROPE_OUTFIELD + (metrics.BIG_FIVE_EXTRAS if source == BIG_FIVE_SOURCE else ())
+    keys = (*keys, *metrics.stats_keys(keys))
+    values = {k: float(rng.uniform(0.2, 40.0)) for k in keys}
+    if group != "GK" and source != US_SOURCE:
+        # patchy stats exist in the data but must never be shown or compared
+        values.update(offsides=float(rng.integers(0, 20)), penalties_won=1.0,
+                      penalties_conceded=1.0, penalties_missed=0.0)
+    return values
+
+
+def new_season_frame(table: str) -> pd.DataFrame:
+    """Newer-season rows: each family's own stats filled, everything else null."""
+    cols = feature_columns(table)
+    want_gk = table == "goalkeeper_features"
+    rng = np.random.default_rng(23 if want_gk else 29)
+    records = []
+    for player, season, squad, league, group, minutes, source in NEW_ROWS:
+        if (group == "GK") != want_gk:
+            continue
+        rec = {c: np.nan for c in cols}
+        rec.update(_family_values(group, source, rng))
+        if player == "Gappy Forward":
+            rec[GAPPY_MISSING] = np.nan
+        rec.update(Player=player, Nation="ENG", Position="FW" if group == "ATT" else group,
+                   Squad=squad, League=league, Age=25, Born=2000, Season=season,
+                   position_group=group, minutes=minutes, nineties_played=round(minutes / 90, 1),
+                   appearances=float(minutes // 80), Source=source)
+        records.append(rec)
+    return pd.DataFrame(records, columns=[*cols, "Source"])
+
+
+def new_player_stats(player: str, season: str) -> pd.Series:
+    for table in ("outfield_features", "goalkeeper_features"):
+        frame = new_season_frame(table)
+        hit = frame[(frame["Player"] == player) & (frame["Season"] == season)]
+        if not hit.empty:
+            return hit.iloc[0]
+    raise ValueError(f"Player '{player}' not found for season '{season}'.")
+
+
+def new_position_pool(group: str, season: str, paired: bool = False) -> pd.DataFrame:
+    frame = new_season_frame("goalkeeper_features" if group == "GK" else "outfield_features")
+    seasons = {season}
+    if paired:
+        from src.similarity import paired_season
+
+        seasons.add(paired_season(season))
+    pool = frame[(frame["position_group"] == group) & frame["Season"].isin(seasons)
+                 & (frame["minutes"] >= 450)]
+    return pool.reset_index(drop=True)

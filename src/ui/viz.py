@@ -79,32 +79,45 @@ def _wrap_label(text: str, width: int = PCT_LABEL_WRAP) -> str:
     return f"{text[:cut]}<br>{text[cut + 1:]}"
 
 
-def percentile_bars(rows: list[tuple[str, float, str]]) -> go.Figure:
+def percentile_bars(rows: list[tuple[str, float | None, str]]) -> go.Figure:
     """Horizontal 0-100 percentile bars, one per metric, coloured by band.
 
     The label reads "value · 87th" with the band ("Elite") on a second line:
     the raw value because a percentile alone hides what it means, and the
-    band in words so colour is never the only cue."""
+    band in words so colour is never the only cue. A row with no percentile
+    (None: the stat is missing for this player) keeps its place, with no bar
+    and "n/a" as its label."""
     if not rows:
         return _empty("Not enough players in the pool to rank against")
     labels = [r[0] for r in rows]
-    pcts = [float(r[1]) for r in rows]
+    pcts = [None if r[1] is None else float(r[1]) for r in rows]
     values = [r[2] for r in rows]
-    bands = [stats.band(p) for p in pcts]
-    ords = [stats.pct_label(p) for p in pcts]
+    x, colours, texts, custom = [], [], [], []
+    for name, pct, value in zip(labels, pcts, values):
+        if pct is None:
+            x.append(0)
+            colours.append(T.PCT_RAMP[0])
+            texts.append("n/a")
+            custom.append(["n/a", "not available for this player", "", name])
+            continue
+        b, o = stats.band(pct), stats.pct_label(pct)
+        x.append(pct)
+        colours.append(T.PCT_RAMP[b.index])
+        # two lines ("0.64 · 92nd" over "Elite"): one long line gets clipped at
+        # the card edge when the metric names are long and the card is half width
+        texts.append(f"{value} · {o}<br>{b.label}")
+        custom.append([value, f"{o} percentile", f" · {b.label}", name])
 
     fig = go.Figure()
     fig.add_bar(
-        y=[_wrap_label(name) for name in labels], x=pcts, orientation="h",
-        marker=dict(color=[T.PCT_RAMP[b.index] for b in bands], cornerradius=2),
-        # two lines ("0.64 · 92nd" over "Elite"): one long line gets clipped at
-        # the card edge when the metric names are long and the card is half width
-        text=[f"{v} · {o}<br>{b.label}" for v, o, b in zip(values, ords, bands)],
+        y=[_wrap_label(name) for name in labels], x=x, orientation="h",
+        marker=dict(color=colours, cornerradius=2),
+        text=texts,
         textposition="outside", cliponaxis=False,
         textfont=dict(color=T.INK_2, size=11, family=T.FONT_BODY),
-        customdata=[[v, o, b.label, name] for v, o, b, name in zip(values, ords, bands, labels)],
+        customdata=custom,
         hovertemplate=("%{customdata[3]}: %{customdata[0]}<br>"
-                       "%{customdata[1]} percentile · %{customdata[2]}<extra></extra>"),
+                       "%{customdata[1]}%{customdata[2]}<extra></extra>"),
         showlegend=False,
     )
     fig.add_vline(x=50, line_color=T.MUTED, line_width=1, line_dash="dot")

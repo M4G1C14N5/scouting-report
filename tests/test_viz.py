@@ -182,3 +182,16 @@ def test_percentile_bands_are_grey_sage_then_lime():
     assert theme.PCT_RAMP[3] == theme.ACCENT
     assert theme.ACCENT not in theme.PCT_RAMP[:3]
     assert viz.LINK == "rgba(238,240,242,0.22)"
+
+
+def test_percentile_bars_show_n_a_for_a_missing_metric():
+    import json
+
+    from src.ui import viz
+
+    fig = viz.percentile_bars([("Goals / 90", 80.0, "0.50"), ("Dribbled Past / 90", None, "n/a")])
+    bar = json.loads(fig.to_json())["data"][0]
+    assert bar["x"][1] == 0
+    assert bar["text"][1] == "n/a"
+    assert "Elite" in bar["text"][0] and "n/a" not in bar["text"][0]
+    assert "percentile" not in json.dumps(bar["customdata"][1])

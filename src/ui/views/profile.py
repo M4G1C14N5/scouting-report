@@ -8,9 +8,13 @@ import streamlit as st
 from src.similarity import MIN_MINUTES
 from src.ui import build, metrics, state, stats, theme, viz
 
-BAND_NOTE = ("Stats where lower is better (errors, cards, fouls committed, dribbled past, penalties conceded or missed, goals against) "
+BAND_NOTE = ("Stats where lower is better (errors, cards, fouls committed, dribbled past, goals against) "
              "are inverted, "
              "so a longer bar is always better. Counting stats are ranked per 90 minutes.")
+NA_NOTE = "n/a: the stat is missing for this player, so it can't be ranked."
+BIG_FIVE_TITLE = "Big five only"
+BIG_FIVE_NOTE = ("These stats come from Understat and exist only for the Premier League, La Liga, "
+                 "Serie A, Bundesliga and Ligue 1, so they are ranked against big-five players only.")
 
 
 SAME_LEAGUE = "Same league"
@@ -40,6 +44,10 @@ def render(pool: pd.DataFrame | None, player: str, season: str, group: str) -> N
         return
 
     player_row = me.iloc[0]
+    family = metrics.family_of(player_row.get("Source"))
+    if family != metrics.FBREF and "Source" in pool.columns:
+        # a newer-season pool holds one family; never rank against another one
+        pool = pool[pool["Source"].map(metrics.family_of) == family]
     league = player_row.get("League")
     st.markdown(theme.section_label_html("Compare with"), unsafe_allow_html=True)
     scope = st.selectbox("Compare with", [SAME_LEAGUE, ALL_LEAGUES], key=state.COMPARE,
@@ -50,7 +58,12 @@ def render(pool: pd.DataFrame | None, player: str, season: str, group: str) -> N
     st.caption(f"Ranked against {len(ranked):,} {_plural(plural, len(ranked))} in {where} "
                f"with {MIN_MINUTES}+ minutes")
 
-    by_category = build.profile_rows(ranked, player_row, group, min_coverage=build.MIN_COVERAGE)
+    if family == metrics.FBREF:  # today's FBref profile
+        by_category = build.profile_rows(ranked, player_row, group, min_coverage=build.MIN_COVERAGE)
+    else:  # the family's fixed set: every bar for every player, n/a when missing
+        by_category = build.profile_rows(ranked, player_row, group,
+                                         layout=metrics.profile_layout(family, group),
+                                         keep_missing=True)
     if not by_category:
         st.markdown(theme.empty_state_html(
             "Not enough data to rank",
@@ -58,13 +71,28 @@ def render(pool: pd.DataFrame | None, player: str, season: str, group: str) -> N
             + ("" if scope == ALL_LEAGUES else " Try comparing with all leagues in this season.")),
             unsafe_allow_html=True)
         return
-    cards = list(by_category.items())
+    cards = [(category, rows, "") for category, rows in by_category.items()]
+    if group != "GK" and metrics.is_big_five(player_row.get("Source"), league):
+        cards.append(_big_five_card(pool, ranked, player_row, group, in_league))
     for start in range(0, len(cards), 2):
         cols = st.columns(2, gap="medium")
-        for col, (category, rows) in zip(cols, cards[start:start + 2]):
+        for col, (category, rows, note) in zip(cols, cards[start:start + 2]):
             with col, st.container(border=True, key=f"card_profile_{stats.slug(category)}"):
                 st.markdown(theme.card_title_html(category), unsafe_allow_html=True)
+                if note:
+                    st.caption(note)
                 bars = [(r.label, r.pct, r.text) for r in rows]
                 st.plotly_chart(viz.percentile_bars(bars), config=viz.PLOTLY_CONFIG, theme=None,
                                 width="stretch", key=f"pct_{stats.slug(category)}")
-    st.markdown(theme.band_key_html(BAND_NOTE), unsafe_allow_html=True)
+    note = BAND_NOTE if family == metrics.FBREF else f"{BAND_NOTE} {NA_NOTE}"
+    st.markdown(theme.band_key_html(note), unsafe_allow_html=True)
+
+
+def _big_five_card(pool: pd.DataFrame, ranked: pd.DataFrame, player_row, group: str,
+                   in_league: bool) -> tuple[str, list, str]:
+    """The Understat extras, ranked within big-five players of the same position
+    and season (or the player's league when "Same league" is chosen)."""
+    five = ranked if in_league else pool[pool["League"].isin(metrics.BIG_FIVE)]
+    rows = build.profile_rows(five, player_row, group,
+                              layout={BIG_FIVE_TITLE: metrics.BIG_FIVE_EXTRAS}, keep_missing=True)
+    return BIG_FIVE_TITLE, rows[BIG_FIVE_TITLE], BIG_FIVE_NOTE

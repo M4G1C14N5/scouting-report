@@ -388,3 +388,116 @@ def test_stats_display_table_leaves_missing_values_blank():
     out = stats_tab.display_table(table)
     assert list(out["Total"]) == ["1,234", "43.9", ""]
     assert list(out["Per 90"]) == ["0.64", "", "0.75"]
+
+
+# --- newer seasons: fixed family sets ----------------------------------------
+
+def profile_new_script(player: str, season: str, group: str) -> None:
+    from src.ui.views import profile
+    from tests import fakes
+
+    profile.render(fakes.new_position_pool(group, season), player, season, group)
+
+
+def _bar_texts(at) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for chart in at.get("plotly_chart"):
+        for trace in json.loads(chart.proto.spec)["data"]:
+            if trace.get("type") == "bar":
+                for y, text in zip(trace.get("y", []), trace.get("text", [])):
+                    out[y.replace("<br>", " ")] = text
+    return out
+
+
+def _family_labels(keys) -> set[str]:
+    from src.ui import metrics
+
+    labels = set()
+    for key in keys:
+        label = metrics.label(key)
+        if metrics.KIND[key] in metrics.PER90_COMPUTED_KINDS and not label.endswith("/ 90"):
+            label = f"{label} / 90"
+        labels.add(label)
+    return labels
+
+
+def test_profile_europe_player_shows_exactly_the_europe_set():
+    from src.ui import metrics
+
+    at = _run(profile_new_script, "Two Forward 0", fakes.EUROPE_SEASON, "ATT")
+    assert set(_bar_labels(at)) == _family_labels(metrics.EUROPE_OUTFIELD)
+    assert len(_bar_labels(at)) == 20
+    md = _markdown(at)
+    for category in ("Shooting", "Chance creation", "Passing", "Possession and dribbling",
+                     "Defending", "Duels", "Discipline", "Playing time"):
+        assert category in md, category
+    assert len(at.get("plotly_chart")) == 8
+    assert "Big five only" not in md
+    assert "Offsides" not in " ".join(_bar_labels(at))
+    assert at.selectbox(key="profile_compare").options == ["Same league", "All leagues in this season"]
+
+
+def test_profile_missing_metric_shows_n_a_instead_of_disappearing():
+    at = _run(profile_new_script, "Gappy Forward", fakes.EUROPE_SEASON, "ATT")
+    texts = _bar_texts(at)
+    assert texts["Dribbled Past / 90"] == "n/a"
+    assert len(texts) == 20
+
+
+def test_profile_big_five_player_gets_a_big_five_only_card():
+    from src.ui import metrics
+
+    at = _run(profile_new_script, "Prem Forward 3", fakes.EUROPE_SEASON, "ATT")
+    labels = _bar_labels(at)
+    assert set(labels) == _family_labels(metrics.EUROPE_OUTFIELD) | _family_labels(
+        metrics.BIG_FIVE_EXTRAS)
+    assert len(at.get("plotly_chart")) == 9
+    md = _markdown(at)
+    assert "Big five only" in md
+    assert ("These stats come from Understat and exist only for the Premier League, La Liga, "
+            "Serie A, Bundesliga and Ligue 1, so they are ranked against big-five players only."
+            ) in md + _captions(at)
+
+
+def _big_five_pct(at) -> float:
+    for chart in at.get("plotly_chart"):
+        for trace in json.loads(chart.proto.spec)["data"]:
+            ys = [y.replace("<br>", " ") for y in trace.get("y", [])]
+            if trace.get("type") == "bar" and "xG / 90" in ys:
+                return trace["x"][ys.index("xG / 90")]
+    raise AssertionError("no xG / 90 bar")
+
+
+def test_big_five_extras_rank_against_big_five_players_only():
+    from src.ui import stats
+
+    at = _run(profile_new_script, "Prem Forward 3", fakes.EUROPE_SEASON, "ATT")
+    pool = fakes.new_position_pool("ATT", fakes.EUROPE_SEASON)
+    me = pool[pool["Player"] == "Prem Forward 3"].iloc[0]
+    premier = pool[pool["League"] == "Premier League"]
+    assert _big_five_pct(at) == pytest.approx(stats.percentile_of(premier["xg_per_90"], me["xg_per_90"]))
+    at.selectbox(key="profile_compare").set_value("All leagues in this season").run()
+    assert not at.exception
+    five = pool[pool["League"].isin(["Premier League", "La Liga"])]  # not League Two
+    assert len(five) == 12
+    assert _big_five_pct(at) == pytest.approx(stats.percentile_of(five["xg_per_90"], me["xg_per_90"]))
+
+
+def test_profile_us_player_shows_exactly_the_us_set():
+    from src.ui import metrics
+
+    at = _run(profile_new_script, "US Forward 2", fakes.US_SEASON, "ATT")
+    assert set(_bar_labels(at)) == _family_labels(metrics.US_OUTFIELD)
+    assert len(_bar_labels(at)) == 21
+    md = _markdown(at)
+    assert "Goals added" in md and "Big five only" not in md
+    assert "Duels" not in md
+
+
+def test_profile_europe_goalkeeper_uses_the_keeper_set():
+    from src.ui import metrics
+
+    at = _run(profile_new_script, "Prem Keeper 1", fakes.EUROPE_SEASON, "GK")
+    assert set(_bar_labels(at)) == _family_labels(metrics.EUROPE_GOALKEEPER)
+    assert len(at.get("plotly_chart")) == 2  # Goalkeeping, Playing time
+    assert "Big five only" not in _markdown(at)
