@@ -24,10 +24,15 @@ def test_percentile_bars_colour_each_bar_by_band():
 
 def test_percentile_bars_label_value_percentile_and_band_as_text():
     fig = viz.percentile_bars(ROWS)
-    assert list(fig.data[0].text) == ["1 · 10th<br>Poor", "2 · 30th<br>Below avg",
-                                      "3 · 60th<br>Above avg", "4 · 90th<br>Elite"]
+    band = "<span style='color:" + theme.MUTED + "'>{}</span>"
+    assert list(fig.data[0].text) == [f"<b>1</b> · 10th<br>{band.format('Poor')}",
+                                      f"<b>2</b> · 30th<br>{band.format('Below avg')}",
+                                      f"<b>3</b> · 60th<br>{band.format('Above avg')}",
+                                      f"<b>4</b> · 90th<br>{band.format('Elite')}"]
     assert fig.data[0].hovertemplate.endswith("<extra></extra>")
-    assert fig.data[0].textfont.color == theme.INK_2  # text never wears a series colour
+    assert fig.data[0].textfont.color == theme.INK  # text never wears a series colour
+    assert fig.data[0].textfont.size == 14  # the number is the main read
+    assert fig.data[0].constraintext == "none"  # not shrunk to the thin bar
 
 
 def test_percentile_bars_size_axis_and_reference_line():
@@ -53,8 +58,8 @@ def test_percentile_bars_show_five_horizontal_ticks():
 def test_percentile_bars_range_leaves_label_room_without_starving_the_track():
     # under ~160 a 99th-percentile label clips on a half-width card; at 215 the
     # 0-100 track was too short for five ticks ("0 255075100")
-    assert viz.PCT_X_MAX == 165
-    assert tuple(viz.percentile_bars(ROWS).layout.xaxis.range) == (0, 165)
+    assert viz.PCT_X_MAX == 185
+    assert tuple(viz.percentile_bars(ROWS).layout.xaxis.range) == (0, 185)
 
 
 def test_percentile_bars_wrap_long_metric_names_but_hover_the_full_name():

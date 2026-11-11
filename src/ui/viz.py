@@ -17,7 +17,7 @@ from src.ui import stats
 from src.ui import theme as T
 
 PLOTLY_CONFIG = {"displayModeBar": False}
-ROW_PX = 38            # percentile bar row height
+ROW_PX = 46            # percentile bar row height (room for the larger value label)
 DUMBBELL_ROW_PX = 34
 LINK = "rgba(238,240,242,0.22)"  # dumbbell connector
 LABEL_SHIFT = 14       # px above/below a dot for its direct label
@@ -26,7 +26,7 @@ LABEL_X_MIN, LABEL_X_MAX = 10, 90  # keep centred labels inside the plot
 # the two-line value label ("654.36 · 99th" over "Elite") drawn past the bar end.
 # Lower gives the 0-100 track (and its five ticks) more width; too low and a
 # label on a 99th-percentile bar is cut off at the card edge on a half-width card.
-PCT_X_MAX = 165
+PCT_X_MAX = 185
 # Metric names longer than this wrap onto two lines, so one long name
 # ("Progressive Pass Distance / 90") cannot squeeze the plot of its whole card.
 PCT_LABEL_WRAP = 20
@@ -105,7 +105,9 @@ def percentile_bars(rows: list[tuple[str, float | None, str]]) -> go.Figure:
         colours.append(T.PCT_RAMP[b.index])
         # two lines ("0.64 · 92nd" over "Elite"): one long line gets clipped at
         # the card edge when the metric names are long and the card is half width
-        texts.append(f"{value} · {o}<br>{b.label}")
+        # the value leads in bold so the number reads before the bar; the band
+        # in words sits under it, muted
+        texts.append(f"<b>{value}</b> · {o}<br><span style='color:{T.MUTED}'>{b.label}</span>")
         custom.append([value, f"{o} percentile", f" · {b.label}", name])
 
     fig = go.Figure()
@@ -114,7 +116,9 @@ def percentile_bars(rows: list[tuple[str, float | None, str]]) -> go.Figure:
         marker=dict(color=colours, cornerradius=2),
         text=texts,
         textposition="outside", cliponaxis=False,
-        textfont=dict(color=T.INK_2, size=11, family=T.FONT_BODY),
+        # keep the label at full size: by default Plotly shrinks outside text to the bar's thickness
+        constraintext="none",
+        textfont=dict(color=T.INK, size=14, family=T.FONT_BODY),
         customdata=custom,
         hovertemplate=("%{customdata[3]}: %{customdata[0]}<br>"
                        "%{customdata[1]}%{customdata[2]}<extra></extra>"),
@@ -123,7 +127,7 @@ def percentile_bars(rows: list[tuple[str, float | None, str]]) -> go.Figure:
     fig.add_vline(x=50, line_color=T.MUTED, line_width=1, line_dash="dot")
     fig.update_layout(**_layout(
         height=ROW_PX * len(rows) + 60,
-        bargap=0.34,
+        bargap=0.62,  # thin bars: the numbers carry the reading, the bar shows where it sits
         # headroom past 100 (PCT_X_MAX) so the outside labels are never clipped
         # tickangle 0: a long metric name narrows the plot and Plotly would rotate the ticks
         xaxis=_axis(range=[0, PCT_X_MAX], tickvals=[0, 25, 50, 75, 100], tickangle=0,
