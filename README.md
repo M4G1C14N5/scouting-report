@@ -68,7 +68,24 @@ European seasons are labelled `2025-2026` (shown as 2025-26) and US calendar sea
 - In Europe only the Big 5 have xG (from Understat); the other ten European leagues have none in 2024-25 or 2025-26.
 - Goalkeepers after 2023-24 have no penalty save %.
 
-Stats are grouped the same way for every season: Shooting, Chance creation, Passing, Possession and dribbling, Defending, Duels, Goals added, Discipline, Playing time and Goalkeeping. The similarity model and the Profile tab work on the stats a player-season has (see below), and the Stats tab simply shows the cards and rows it has.
+Stats are grouped the same way for every season: Shooting, Chance creation, Passing, Possession and dribbling, Defending, Duels, Goals added, Discipline, Playing time and Goalkeeping.
+
+### Data families: the same stats for everyone
+
+A stat that only some players have breaks the comparison, so every newer-season player is analysed on one fixed stat set, picked by the row's source (`Source` column). The sets live in `src/ui/metrics.py`.
+
+| Family | Who | Outfield stat set (the same for forwards, midfielders and defenders) |
+|---|---|---|
+| **Europe** | every `API-Football...` source: all 15 European leagues, 2024-25 and 2025-26 | goals, assists, shots, shots on target, key passes, passes, pass completion %, tackles, interceptions, blocks, duels, duels won %, dribbles attempted, dribbles completed, dribble success %, dribbled past, fouls drawn, fouls committed, yellow cards, match rating (20) |
+| **Big five extras** | European players in the Premier League, La Liga, Serie A, Bundesliga and Ligue 1 | xG, npxG, xA, xG Chain, xG Buildup (Understat). Shown in a separate "Big five only" card and ranked only against big-five players |
+| **US** | American Soccer Analysis: MLS, MLS NEXT Pro, USL Championship, USL League One, 2024 to 2026 | goals, assists, shots, shots on target, key passes, passes, pass completion %, xG, xA, goals added and its six parts (shooting, passing, receiving, dribbling, defending, fouling), passes completed over expected per 100, expected pass completion %, share of team touches %, average pass distance, average vertical pass distance (21) |
+| **FBref** | 2017-18 to 2023-24 | unchanged: the per-position profiles and similarity templates the app always had |
+
+Goalkeepers: European keepers use save %, goals against per 90, clean sheet %, saves (per 90) and match rating. FBref keepers are unchanged. No US keepers are loaded.
+
+Counts (goals, shots, key passes, passes, tackles, duels, cards...) are shown and compared per 90 minutes. Offsides and penalties won, conceded and missed are too patchy in the newer sources: they stay in the data and in BigQuery but are not shown in the Profile or Stats tab and not used for similarity in the newer seasons.
+
+Coverage of the sets, outfield players with 450+ minutes in the newer seasons (non-null share): the Europe set 98 to 100% in all 15 leagues (pass completion %, dribble success % and dribbled past are the lowest, at 98% in some leagues); the big-five extras 99% of big-five players; the US set 100%. US rows have none of the API-Football defending, duel or dribble stats, and the European leagues outside the big five have no xG. European keepers: 99 to 100% on every keeper stat except clean sheet %, which 93% of the plain `API-Football` keepers have. A stat a player lacks shows "n/a" instead of disappearing.
 
 ---
 
@@ -91,12 +108,24 @@ Stats are grouped the same way for every season: Shooting, Chance creation, Pass
 Defined in `src/similarity.py`. Uses cosine similarity on z-scored stats.
 
 1. Players are grouped into four pools by primary position: ATT, MID, DEF, GK
-2. Each pool has a curated feature template of per-90, rate and season-total stats: 15 FBref stats per outfield position plus 7 or 8 from the newer sources (dribbles, duels, xG Chain, goals added by action: the goals added total is left out because it is the sum of its parts), and for goalkeepers save %, goals against per 90, clean sheet %, penalty save %, saves per 90 and match rating (shots on target against is left out because it equals saves plus goals against). Every season total (key passes, progressive carries, tackles, passes into the box, dribbles, xG Chain, goals added...) is divided by 90s played first, so players with more minutes are not favoured. Rates and percentages are used as they are. Earlier versions compared the FBref totals as raw season totals, so FBref similarity results changed with this switch
+2. Each player-season is compared on a fixed feature template (below). Every season total (key passes, passes, tackles, duels, dribbles, cards, saves, xG Chain, goals added...) is divided by 90s played first, so players with more minutes are not favoured. Rates and percentages are used as they are
 3. Feature columns are z-scored across the pool so no single stat dominates by scale
-4. Cosine similarity is computed between the query player and every other player in the same pool
+4. Cosine similarity is computed between the query player and every other player in the pool
 5. Results are returned ranked by similarity score, filtered to players with ≥ 450 minutes
 
-Only the template stats the query player has are used, and only players who have every one of those stats are compared: a Premier League striker with xG is matched with other players who have xG, while a Championship striker without it is matched on the stats both have. If fewer than 20 players qualify, the stat the pool has least often is dropped and the search repeats. With fewer than 3 stats left the Similar tab says "Not enough comparable stats for this player in this season" instead of ranking. FBref rows have every FBref template stat, so they are always compared on all of them.
+The Similar players tab has a **Compare on** dropdown:
+
+| Mode | Offered for | Template | Pool |
+|---|---|---|---|
+| All leagues, shared stats (default) | everyone | the family set (Europe, US or the European keeper set); FBref keeps its template | same position and season, every league of the player's family |
+| Big five, all stats | big-five outfield players | the Europe set plus the big-five extras (25) | big-five players only. Note shown: "Big five only: uses Understat stats that the other leagues do not have." |
+| Europe and US together (trial) | European and US outfield players (not FBref seasons, not keepers) | the seven stats both regions have: goals, assists, shots, shots on target, key passes, passes (per 90) and pass completion % | same position in the player's season plus the other region's paired season: US year Y pairs with the European Y-(Y+1), and the European Y-(Y+1) with US Y |
+
+The trial mode shows this disclaimer: "Trial: compares European and US players on the seven stats both regions have (goals, assists, shots, shots on target, key passes, passes, pass completion). League strength differs a lot between these leagues, so read a match as a similar style of play, not a similar level." The US 2026 season pairs with 2026-27, which is not in the data yet, so for US 2026 players the trial compares with US 2026 players only (the tab says so).
+
+The newer-season templates are fixed: nothing is dropped to find more candidates, and a candidate needs every template stat. If the query player lacks one, the tab says "This player's data is incomplete for this comparison (missing: X). Try another mode." The goals added total is left out of the US template because it is the sum of its six parts, which are in it (it stays a Profile bar).
+
+FBref seasons keep the original model: the position templates in `FEATURE_TEMPLATES` (15 stats per outfield position; save %, goals against per 90, clean sheet %, penalty save % and saves per 90 for keepers), using the template stats the player has and comparing only with players who have all of them; if fewer than 20 players qualify, the stat the pool has least often is dropped and the search repeats, and with fewer than 3 stats left the tab says "Not enough comparable stats for this player in this season". FBref rows have every FBref template stat, so they are always compared on all of them.
 
 **Known limitation:** With FBref data, goals and assists naturally carry high signal weight. More granular tracking data (pressing, spatial, ball retention) would improve result quality.
 
@@ -108,10 +137,10 @@ Only the template stats the query player has are used, and only players who have
 
 - Sidebar filters: season (or all seasons), league and club
 - Search for one player. Players with several seasons in view get a season switcher.
-- Identity card with headline numbers: goals, assists, xG and xAG, or save %, goals against per 90 and clean-sheet % for keepers. A chip names the data source.
-- **Profile**: percentile bars against the same position, season and league by default (450+ minutes), or against every league in the season via "Compare with", on a curated metric list per position. Stats that fewer than 80% of the chosen pool have are not drawn. Lower-is-better stats (errors, cards, fouls committed, dribbled past, penalties conceded or missed, goals against) are inverted. Counting stats are ranked per 90 minutes.
-- **Stats**: every stat by category, with the season total next to per 90
-- **Similar players**: the similarity model's top matches. Select one to compare percentiles side by side and jump to their profile.
+- Identity card with headline numbers that the player's whole family has: goals, assists, xG and xAG (FBref), goals, assists, shots and match rating (Europe), goals, assists, xG and xA (US), or save %, goals against per 90, clean-sheet % and saves per 90 for keepers. A chip names the data source.
+- **Profile**: percentile bars against the same position, season and league by default (450+ minutes), or against every league of the season via "Compare with". Newer-season players get exactly their family set, grouped by category, with "n/a" for a stat they lack; big-five players get an extra "Big five only" card ("These stats come from Understat and exist only for the Premier League, La Liga, Serie A, Bundesliga and Ligue 1, so they are ranked against big-five players only."), ranked within big-five players of the same position and season, or the same league with "Same league". FBref players keep their curated per-position list, where stats that fewer than 80% of the chosen pool have are not drawn. Lower-is-better stats (errors, cards, fouls committed, dribbled past, goals against) are inverted. Counting stats are ranked per 90 minutes.
+- **Stats**: the season total next to per 90, by category. Newer seasons show the family set (plus minutes, 90s and appearances, and the big-five extras in their own card); FBref seasons show every stat.
+- **Similar players**: the similarity model's top matches in the chosen compare mode. Select one to compare percentiles on the mode's stats side by side and jump to their profile.
 
 UI code lives in `src/ui/`: theme, charts, cached queries and views. Per-position metric lists, labels and number formats are all in `src/ui/metrics.py`, the one file to edit when the data source changes.
 
