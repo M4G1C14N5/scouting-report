@@ -16,7 +16,7 @@ def test_theme_mirrors_charcoal_tokens():
     cfg = _config()
     theme = cfg["theme"]
     assert theme["base"] == "dark"
-    assert theme["primaryColor"] == "#b8f05a"
+    assert theme["primaryColor"] == "#58c77e"
     assert theme["backgroundColor"] == "#0e1012"
     assert theme["secondaryBackgroundColor"] == "#1d2125"
     assert theme["textColor"] == "#eef0f2"

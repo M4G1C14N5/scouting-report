@@ -2,7 +2,7 @@
 # sync (tests/test_theme.py checks it).
 [theme]
 base = "dark"
-primaryColor = "#b8f05a"              # ACCENT
+primaryColor = "#58c77e"              # ACCENT
 backgroundColor = "#0e1012"           # PAGE
 secondaryBackgroundColor = "#1d2125"  # SURFACE_2: inputs and widgets
 textColor = "#eef0f2"                 # INK

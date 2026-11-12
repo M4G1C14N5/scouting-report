@@ -25,14 +25,19 @@ def test_percentile_bars_colour_each_bar_by_band():
 def test_percentile_bars_label_value_percentile_and_band_as_text():
     fig = viz.percentile_bars(ROWS)
     band = "<span style='color:" + theme.MUTED + "'>{}</span>"
-    assert list(fig.data[0].text) == [f"<b>1</b> · 10th<br>{band.format('Poor')}",
-                                      f"<b>2</b> · 30th<br>{band.format('Below avg')}",
-                                      f"<b>3</b> · 60th<br>{band.format('Above avg')}",
-                                      f"<b>4</b> · 90th<br>{band.format('Elite')}"]
+    value = "<span style='font-weight:600'>{}</span>"
+    assert list(fig.data[0].text) == [f"{value.format(1)} · 10th<br>{band.format('Poor')}",
+                                      f"{value.format(2)} · 30th<br>{band.format('Below avg')}",
+                                      f"{value.format(3)} · 60th<br>{band.format('Above avg')}",
+                                      f"{value.format(4)} · 90th<br>{band.format('Elite')}"]
     assert fig.data[0].hovertemplate.endswith("<extra></extra>")
     assert fig.data[0].textfont.color == theme.INK  # text never wears a series colour
-    assert fig.data[0].textfont.size == 14  # the number is the main read
+    assert fig.data[0].textfont.size == 13  # the number is the main read, a notch under the old 14
     assert fig.data[0].constraintext == "none"  # not shrunk to the thin bar
+
+
+def test_percentile_bars_metric_names_are_a_notch_larger():
+    assert viz.percentile_bars(ROWS).layout.yaxis.tickfont.size == 13
 
 
 def test_percentile_bars_size_axis_and_reference_line():
@@ -182,10 +187,9 @@ def test_dumbbell_tied_percentiles_stay_both_visible():
     assert fig.layout.hovermode == "y unified"
 
 
-def test_percentile_bands_are_grey_sage_then_lime():
-    # option A: neutral until good; lime is reserved for the Elite band
-    assert theme.PCT_RAMP[3] == theme.ACCENT
-    assert theme.ACCENT not in theme.PCT_RAMP[:3]
+def test_percentile_bands_run_red_orange_green():
+    assert theme.PCT_RAMP == ("#e5484d", "#f08c2e", "#2e8f57", "#58c77e")
+    assert theme.PCT_RAMP[3] == theme.ACCENT  # Elite wears the interface green
     assert viz.LINK == "rgba(238,240,242,0.22)"
 
 

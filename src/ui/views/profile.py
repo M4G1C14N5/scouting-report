@@ -74,16 +74,19 @@ def render(pool: pd.DataFrame | None, player: str, season: str, group: str) -> N
     cards = [(category, rows, "") for category, rows in by_category.items()]
     if group != "GK" and metrics.is_big_five(player_row.get("Source"), league):
         cards.append(_big_five_card(pool, ranked, player_row, group, in_league))
-    for start in range(0, len(cards), 2):
-        cols = st.columns(2, gap="medium")
-        for col, (category, rows, note) in zip(cols, cards[start:start + 2]):
-            with col, st.container(border=True, key=f"card_profile_{stats.slug(category)}"):
-                st.markdown(theme.card_title_html(category), unsafe_allow_html=True)
-                if note:
-                    st.caption(note)
-                bars = [(r.label, r.pct, r.text) for r in rows]
-                st.plotly_chart(viz.percentile_bars(bars), config=viz.PLOTLY_CONFIG, theme=None,
-                                width="stretch", key=f"pct_{stats.slug(category)}")
+    # cards dealt into two columns by height, so the columns end level instead
+    # of each pair of cards being as tall as the taller one
+    weights = [len(rows) + 2 + (1 if note else 0) for _, rows, note in cards]
+    for col, indexes in zip(st.columns(2, gap="medium"), build.balance_columns(weights)):
+        with col:
+            for category, rows, note in (cards[i] for i in indexes):
+                with st.container(border=True, key=f"card_profile_{stats.slug(category)}"):
+                    st.markdown(theme.card_title_html(category), unsafe_allow_html=True)
+                    if note:
+                        st.caption(note)
+                    bars = [(r.label, r.pct, r.text) for r in rows]
+                    st.plotly_chart(viz.percentile_bars(bars), config=viz.PLOTLY_CONFIG, theme=None,
+                                    width="stretch", key=f"pct_{stats.slug(category)}")
     note = BAND_NOTE if family == metrics.FBREF else f"{BAND_NOTE} {NA_NOTE}"
     st.markdown(theme.band_key_html(note), unsafe_allow_html=True)
 

@@ -75,6 +75,19 @@ def profile_sparse_script(player: str, season: str, group: str, league: str) -> 
     profile.render(pool, player, season, group)
 
 
+def _stat_cards(at) -> dict[str, list[tuple[str, str, str]]]:
+    """The Stats tab's HTML cards: {title: [(stat, total, per 90), ...]}, in markup order."""
+    import html
+    import re
+
+    cards = {}
+    for title, body in re.findall(r'<section class="fl-stat-card" data-title="([^"]*)">(.*?)</section>',
+                                  _markdown(at)):
+        rows = re.findall(r"<tr><td>([^<]*)</td><td[^>]*>([^<]*)</td><td[^>]*>([^<]*)</td></tr>", body)
+        cards[html.unescape(title)] = [tuple(html.unescape(cell) for cell in r) for r in rows]
+    return cards
+
+
 def stats_script(player: str, season: str) -> None:
     from src.ui.views import stats_tab
     from tests import fakes
@@ -270,13 +283,13 @@ def test_profile_empty_pool_gets_empty_state():
 
 def test_stats_outfield_fbref_row_has_seven_category_tables_in_order():
     at = _run(stats_script, "Mohamed Salah", fakes.LATEST)
-    assert len(at.dataframe) == 7
-    assert list(at.dataframe[0].value.columns) == list(build.STAT_TABLE_COLUMNS)
+    cards = _stat_cards(at)
+    assert len(at.dataframe) == 0  # plain HTML tables, no data grids
+    assert set(cards) == {"Shooting", "Chance creation", "Passing", "Possession and dribbling", "Defending",
+                          "Discipline", "Playing time"}
+    assert next(iter(cards)) == "Shooting"  # first card, top left
     md = _markdown(at)
-    shown = ("Shooting", "Chance creation", "Passing", "Possession and dribbling", "Defending",
-             "Discipline", "Playing time")
-    positions = [md.index(category) for category in shown]
-    assert positions == sorted(positions)
+    assert "<th>Stat</th>" in md and ">Per 90<" in md
     assert "Duels" not in md and "Goals added" not in md  # FBref rows lack them
 
 
@@ -287,15 +300,15 @@ def test_stats_us_row_shows_the_us_set():
     md = _markdown(at)
     assert "Goals added" in md
     assert "Duels" not in md  # not in the US set, even when the row has it
-    assert len(at.dataframe) == 6
-    stats_shown = {s for df in at.dataframe for s in df.value["Stat"]}
+    assert len(_stat_cards(at)) == 6
+    stats_shown = {r[0] for rows in _stat_cards(at).values() for r in rows}
     assert "Offsides" not in stats_shown and "Tackles" not in stats_shown
     assert "Per 90 = per 90 minutes played" in _captions(at)
 
 
 def test_stats_goalkeeper_has_two_tables():
     at = _run(stats_script, "Alisson", fakes.LATEST)
-    assert len(at.dataframe) == 2
+    assert len(_stat_cards(at)) == 2
     assert "Goalkeeping" in _markdown(at)
 
 
@@ -525,11 +538,7 @@ def stats_new_script(player: str, season: str) -> None:
 
 
 def _stat_rows(at) -> dict[str, tuple[str, str]]:
-    out = {}
-    for df in at.dataframe:
-        for _, r in df.value.iterrows():
-            out[r["Stat"]] = (r["Total"], r["Per 90"])
-    return out
+    return {stat: (total, per90) for rows in _stat_cards(at).values() for stat, total, per90 in rows}
 
 
 def _stats_labels(keys) -> set[str]:
@@ -546,7 +555,7 @@ def test_stats_europe_player_shows_the_europe_set_and_hides_patchy_stats():
     assert set(rows) == _stats_labels(metrics.EUROPE_OUTFIELD) | {"Minutes", "90s", "Appearances"}
     for patchy in ("Offsides", "Penalties Won", "Penalties Conceded", "Penalties Missed"):
         assert patchy not in rows, patchy  # the fake row has them filled
-    assert len(at.dataframe) == 8 and "Big five only" not in _markdown(at)
+    assert len(_stat_cards(at)) == 8 and "Big five only" not in _stat_cards(at)
 
 
 def test_stats_big_five_player_gets_a_big_five_only_section():
@@ -554,9 +563,9 @@ def test_stats_big_five_player_gets_a_big_five_only_section():
 
     at = _run(stats_new_script, "Liga Forward 0", fakes.EUROPE_SEASON)
     md = _markdown(at)
-    assert "Big five only" in md and len(at.dataframe) == 9
-    big = at.dataframe[-1].value
-    assert set(big["Stat"]) == _stats_labels(metrics.BIG_FIVE_EXTRAS)
+    cards = _stat_cards(at)
+    assert "Big five only" in cards and len(cards) == 9
+    assert {r[0] for r in cards["Big five only"]} == _stats_labels(metrics.BIG_FIVE_EXTRAS)
     assert "Understat" in md + _captions(at)
 
 

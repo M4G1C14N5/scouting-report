@@ -14,9 +14,18 @@ def test_tokens_are_charcoal_verbatim():
     assert (theme.PAGE, theme.SURFACE, theme.SURFACE_2, theme.BORDER) ==         ("#0e1012", "#16191c", "#1d2125", "#2a2f34")
     assert (theme.INK, theme.INK_2, theme.MUTED) == ("#eef0f2", "#b6bcc2", "#858c93")
     assert theme.GRID == "rgba(238,240,242,0.07)"
-    assert (theme.ACCENT, theme.RULE, theme.PLAYER, theme.COMPARE) ==         ("#b8f05a", "#c9cfd4", "#5aa82c", "#7c7cf2")
-    assert theme.PCT_RAMP == ("#4a4f54", "#767c82", "#7fa36a", "#b8f05a")
+    assert (theme.ACCENT, theme.ACCENT_2, theme.RULE, theme.PLAYER, theme.COMPARE) ==         ("#58c77e", "#3fb8c9", "#c9cfd4", "#5aa82c", "#7c7cf2")
+    assert theme.PCT_RAMP == ("#e5484d", "#f08c2e", "#2e8f57", "#58c77e")
     assert theme.RADIUS == "2px"
+
+
+def _hex_rgb(hex_colour: str) -> str:
+    return ",".join(str(int(hex_colour[i:i + 2], 16)) for i in (1, 3, 5))
+
+
+def test_rgb_tints_match_their_hex_tokens():
+    assert theme.ACCENT_RGB == _hex_rgb(theme.ACCENT)
+    assert theme.ACCENT_2_RGB == _hex_rgb(theme.ACCENT_2)
 
 
 def _rule(selector: str) -> str:
@@ -25,29 +34,20 @@ def _rule(selector: str) -> str:
     return theme.CSS[start:theme.CSS.index("}", start)]
 
 
-def test_accent_is_not_used_on_structural_chrome():
-    # chalk (RULE) carries the structure: tile borders, section bars, hero rule,
-    # avatar ring, position chip, step numbers
-    assert theme.RULE in _rule(".fl-kpi") and theme.ACCENT not in _rule(".fl-kpi")
-    assert theme.RULE in _rule(".fl-card-title::before") and theme.ACCENT not in _rule(".fl-card-title::before")
-    assert theme.RULE in _rule(".fl-hero") and theme.ACCENT not in _rule(".fl-hero")
-    assert theme.RULE in _rule(".fl-avatar") and theme.ACCENT not in _rule(".fl-avatar")
-    assert theme.RULE in _rule(".fl-chip-accent") and theme.ACCENT not in _rule(".fl-chip-accent")
-    assert theme.ACCENT not in _rule(".fl-step-num")
+def test_green_accent_carries_the_structure():
+    # tile edges, section bars, hero rule, avatar ring, position chip, step numbers
+    assert theme.ACCENT in _rule(".fl-kpi")
+    assert theme.ACCENT in _rule(".fl-card-title::before") and theme.ACCENT_2 in _rule(".fl-card-title::before")
+    assert theme.ACCENT in _rule(".fl-hero")
+    assert theme.ACCENT in _rule(".fl-avatar")
+    assert theme.ACCENT in _rule(".fl-chip-accent")
+    assert theme.ACCENT in _rule(".fl-step-num")
 
 
-def test_accent_appears_only_on_the_brand_words():
-    # lime in the injected CSS: the hero word and the sidebar brand word ("Hub"), nothing else
-    lines = [ln for ln in theme.CSS.splitlines() if theme.ACCENT in ln]
-    assert len(lines) == 2
-    assert any(ln.startswith(".fl-hero-title em") for ln in lines)
-    assert any(ln.startswith(".fl-brand em") for ln in lines)
-
-
-def test_no_green_tint_left_in_the_css():
-    assert "184,240,90" not in theme.CSS  # the old lime rgba tints
-    assert "236,242,237" not in theme.CSS and "17,26,21" not in theme.CSS
-    assert "repeating-linear-gradient" not in theme.CSS and "radial-gradient" not in theme.CSS
+def test_page_and_hero_glow_green_and_teal():
+    for selector in (".stApp", ".fl-hero"):
+        body = _rule(selector)
+        assert theme.ACCENT_RGB in body and theme.ACCENT_2_RGB in body
 
 
 def test_streamlit_config_mirrors_the_tokens():

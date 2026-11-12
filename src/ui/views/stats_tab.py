@@ -5,19 +5,10 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from src.ui import build, metrics, stats, theme
+from src.ui import build, metrics, theme
 
-# The grid can't format per row and prints a missing number as "None", so the
-# numbers are turned into right-aligned text here: Total as 1,234 / 12.3 / 41.3
-# (already rounded per metric kind in build.stat_table), Per 90 with two
-# decimals, and a blank where there is no value.
-COLUMN_CONFIG = {
-    "Stat": st.column_config.TextColumn("Stat", width="medium"),
-    "Total": st.column_config.TextColumn(
-        "Total", alignment="right",
-        help="Season total. For % and per-shot stats this is the season rate itself."),
-    "Per 90": st.column_config.TextColumn("Per 90", alignment="right", help="Per 90 minutes played."),
-}
+TOTAL_HELP = "Season total. For % and per-shot stats this is the season rate itself."
+PER90_HELP = "Per 90 minutes played."
 
 
 def _text(value: float, per90: bool) -> str:
@@ -73,13 +64,13 @@ def render(row, group: str) -> None:
                                            "This player-season has no stat columns filled in."),
                     unsafe_allow_html=True)
         return
-    for start in range(0, len(tables), 2):
-        cols = st.columns(2, gap="medium")
-        for col, (category, table, note) in zip(cols, tables[start:start + 2]):
-            with col, st.container(border=True, key=f"card_stats_{stats.slug(category)}"):
-                st.markdown(theme.card_title_html(category), unsafe_allow_html=True)
-                if note:
-                    st.caption(note)
-                st.dataframe(display_table(table), hide_index=True, width="stretch", height="content",
-                             row_height=34, column_config=COLUMN_CONFIG)
+    cards = []
+    for category, table, note in tables:
+        shown = display_table(table)
+        rows = list(zip(shown["Stat"], shown["Total"], shown["Per 90"]))
+        cards.append(theme.stat_card_html(category, rows, note, TOTAL_HELP, PER90_HELP))
+    # weight: table rows plus the title (and note) so short cards still count
+    weights = [len(table) + 2 + (1 if note else 0) for _, table, note in tables]
+    columns = [[cards[i] for i in col] for col in build.balance_columns(weights)]
+    st.markdown(theme.stat_grid_html(columns), unsafe_allow_html=True)
     st.caption(NOTE)

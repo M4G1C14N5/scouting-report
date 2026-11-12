@@ -323,3 +323,9 @@ def test_kpi_tiles_by_family():
     assert [lbl for lbl, _, _ in fbref] == ["Minutes", "90s", "Goals", "Assists", "xG", "xAG"]
     gk = build.kpi_tiles(pd.Series({"Source": "API-Football"}), "GK")
     assert [lbl for lbl, _, _ in gk][2:] == ["Save %", "GA / 90", "CS %", "Saves / 90"]
+
+
+def test_balance_columns_deals_each_card_to_the_shorter_column():
+    assert build.balance_columns([5, 3, 3, 4, 2, 2, 6]) == [[0, 3, 6], [1, 2, 4, 5]]
+    assert build.balance_columns([]) == [[], []]
+    assert build.balance_columns([1, 1, 1]) == [[0, 2], [1]]

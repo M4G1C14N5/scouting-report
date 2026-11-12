@@ -30,6 +30,9 @@ PCT_X_MAX = 185
 # Metric names longer than this wrap onto two lines, so one long name
 # ("Progressive Pass Distance / 90") cannot squeeze the plot of its whole card.
 PCT_LABEL_WRAP = 20
+VALUE_SIZE = 13     # px, the value label beside each percentile bar
+VALUE_WEIGHT = 600  # semibold: the number reads first without shouting
+NAME_SIZE = 13      # px, the metric names on the percentile bars' y axis
 
 
 def _axis(**overrides) -> dict:
@@ -105,9 +108,10 @@ def percentile_bars(rows: list[tuple[str, float | None, str]]) -> go.Figure:
         colours.append(T.PCT_RAMP[b.index])
         # two lines ("0.64 · 92nd" over "Elite"): one long line gets clipped at
         # the card edge when the metric names are long and the card is half width
-        # the value leads in bold so the number reads before the bar; the band
-        # in words sits under it, muted
-        texts.append(f"<b>{value}</b> · {o}<br><span style='color:{T.MUTED}'>{b.label}</span>")
+        # the value leads in semibold so the number reads before the bar; the
+        # band in words sits under it, muted
+        texts.append(f"<span style='font-weight:{VALUE_WEIGHT}'>{value}</span> · {o}"
+                     f"<br><span style='color:{T.MUTED}'>{b.label}</span>")
         custom.append([value, f"{o} percentile", f" · {b.label}", name])
 
     fig = go.Figure()
@@ -118,7 +122,7 @@ def percentile_bars(rows: list[tuple[str, float | None, str]]) -> go.Figure:
         textposition="outside", cliponaxis=False,
         # keep the label at full size: by default Plotly shrinks outside text to the bar's thickness
         constraintext="none",
-        textfont=dict(color=T.INK, size=14, family=T.FONT_BODY),
+        textfont=dict(color=T.INK, size=VALUE_SIZE, family=T.FONT_BODY),
         customdata=custom,
         hovertemplate=("%{customdata[3]}: %{customdata[0]}<br>"
                        "%{customdata[1]}%{customdata[2]}<extra></extra>"),
@@ -132,7 +136,7 @@ def percentile_bars(rows: list[tuple[str, float | None, str]]) -> go.Figure:
         # tickangle 0: a long metric name narrows the plot and Plotly would rotate the ticks
         xaxis=_axis(range=[0, PCT_X_MAX], tickvals=[0, 25, 50, 75, 100], tickangle=0,
                     title=dict(text="Percentile in position pool", font=dict(color=T.MUTED, size=11))),
-        yaxis=_axis(autorange="reversed", showgrid=False, tickfont=dict(color=T.INK_2, size=12)),
+        yaxis=_axis(autorange="reversed", showgrid=False, tickfont=dict(color=T.INK_2, size=NAME_SIZE)),
     ))
     return fig
 

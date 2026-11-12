@@ -166,6 +166,20 @@ def stat_table(row: Mapping[str, Any], category: str, keys: Sequence[str] | None
     return table.astype({"Total": "float64", "Per 90": "float64"})
 
 
+def balance_columns(weights: Sequence[float], n: int = 2) -> list[list[int]]:
+    """Deal items (by index, in order) into `n` columns, each to the column that
+    is shortest so far, so the columns end about level instead of every row of
+    cards being as tall as its tallest card. Ties go to the leftmost column,
+    which keeps the reading order close to left-right, top-down."""
+    columns: list[list[int]] = [[] for _ in range(n)]
+    heights = [0.0] * n
+    for i, weight in enumerate(weights):
+        target = heights.index(min(heights))
+        columns[target].append(i)
+        heights[target] += weight
+    return columns
+
+
 def kpi_tiles(row: Mapping[str, Any], group: str) -> list[tuple[str, str, str]]:
     """(label, value text, help text) for the identity card's KPI row."""
     if group == "GK":
