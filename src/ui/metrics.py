@@ -356,6 +356,12 @@ EUROPE_GOALKEEPER = ("save_pct", "goals_against_per_90", "clean_sheet_pct", "sav
 # What both regions have: the trial Europe-and-US comparison uses only these.
 SHARED_SET = ("goals_per_90", "shots_total_per_90", "shots_on_target_per_90", "assists_per_90",
               "key_passes", "passes_attempted_total", "passes_completion_pct_total")
+# Role mix (newer seasons, outfield): share of minutes per role, from formation
+# slots in Europe and ASA positions in the US (src/soccer_data_loader.py).
+ROLE_COLUMNS = ("role_st", "role_amw", "role_cm", "role_fb", "role_cb")
+ROLE_SHORT = {"ST": "ST", "AMW": "AM/W", "CM": "CM", "FB": "FB", "CB": "CB"}
+ROLE_NAMES = {"ST": "Striker", "AMW": "Attacking mid / winger", "CM": "Central / defensive mid",
+              "FB": "Fullback / wing-back", "CB": "Centre-back"}
 # Too patchy in the newer sources to compare on: kept in the data and BigQuery,
 # never shown or compared for the newer seasons.
 PATCHY = frozenset({"offsides", "penalties_won", "penalties_conceded", "penalties_missed"})

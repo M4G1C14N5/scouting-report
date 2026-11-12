@@ -465,7 +465,11 @@ def test_mode_templates_are_fixed_family_sets():
     for group in ("ATT", "MID", "DEF"):
         # dribble success % is 0/0 for a player with no dribbles: compared through
         # dribbles attempted and completed instead (it stays a Profile and Stats bar)
-        europe = [k for k in metrics.EUROPE_OUTFIELD if k != "dribble_success_pct"]
+        # cards, fouls committed, match rating and blocks say little about how a player
+        # plays: left out of the role-aware comparison
+        europe = [k for k in metrics.EUROPE_OUTFIELD
+                  if k != "dribble_success_pct" and k not in similarity.STYLE_DROP]
+        assert {"yellow_cards", "match_rating"} <= set(metrics.EUROPE_OUTFIELD) - set(europe)
         assert similarity.mode_template(SHARED, "europe", group) == europe
         assert similarity.mode_template(BIG5, "europe", group) == [*europe, *metrics.BIG_FIVE_EXTRAS]
         assert "dribbles_attempted" in europe and "dribble_success_pct" in metrics.EUROPE_OUTFIELD
@@ -615,3 +619,75 @@ def test_find_similar_players_in_trial_mode_fetches_the_paired_season():
                                           bq_client=bq, mode=TRIAL)
     assert "Season IN ('2025-2026', '2026')" in " ".join(bq.calls[-1].split())
     assert fakes.US_SEASON in set(out["Season"])
+
+
+# --- role-aware ranking (newer seasons, outfield) ------------------------------
+
+def _roles(st=0.0, amw=0.0, cm=0.0, fb=0.0, cb=0.0) -> dict:
+    return dict(role_st=st, role_amw=amw, role_cm=cm, role_fb=fb, role_cb=cb)
+
+
+def _role_pool() -> pd.DataFrame:
+    """Style stats a, b, c (not per-90 kinds) and role shares. The query Q is a winger;
+    W1 is a winger with a close style; M1 a central mid with the SAME style as Q;
+    M2 a central mid with another style; filler rows so z-scores are meaningful."""
+    rng = np.random.default_rng(5)
+    rows = [
+        {"Player": "Q", "a": 3.0, "b": 0.5, "c": 1.0, **_roles(amw=1.0)},
+        {"Player": "W1", "a": 2.8, "b": 0.6, "c": 1.1, **_roles(amw=1.0)},
+        {"Player": "M1", "a": 3.0, "b": 0.5, "c": 1.0, **_roles(cm=1.0), "position_group": "MID"},
+        {"Player": "M2", "a": 0.5, "b": 3.0, "c": 2.5, **_roles(cm=1.0), "position_group": "MID"},
+        {"Player": "NoRole", "a": 3.0, "b": 0.5, "c": 1.0},
+    ]
+    for i in range(30):
+        rows.append({"Player": f"F{i}", "a": float(rng.uniform(0, 3)), "b": float(rng.uniform(0, 3)),
+                     "c": float(rng.uniform(0, 3)), **(_roles(cb=1.0) if i % 2 else _roles(st=1.0)),
+                     "position_group": "DEF" if i % 2 else "ATT"})
+    pool = _pool(rows, season="2025-2026")
+    for col in metrics.ROLE_COLUMNS:
+        pool[col] = pool[col].astype(float)
+    return pool
+
+
+def test_role_weight_zero_is_pure_style():
+    out = similarity.rank_role_aware(_role_pool(), "Q", "2025-2026", ["a", "b", "c"], 5, role_weight=0.0)
+    assert out.iloc[0]["Player"] == "M1"  # identical numbers win when roles don't count
+
+
+def test_role_mix_lifts_same_role_players_but_keeps_close_matches_from_other_roles():
+    out = similarity.rank_role_aware(_role_pool(), "Q", "2025-2026", ["a", "b", "c"], 5, role_weight=2.0)
+    players = list(out["Player"])
+    assert players[0] == "W1"  # same role, close style
+    assert "M1" in players  # same numbers from another role: still a match, a step below
+    assert players.index("M1") < players.index("M2") if "M2" in players else True
+    assert out.iloc[0]["main_role"] == "AMW" and out.iloc[0]["main_role_share"] == 1.0
+    assert set(out.columns) >= {"main_role", "main_role_share", "similarity_score", "position_group"}
+
+
+def test_rows_without_a_role_mix_are_not_candidates():
+    out = similarity.rank_role_aware(_role_pool(), "Q", "2025-2026", ["a", "b", "c"], 40)
+    assert "NoRole" not in set(out["Player"])
+
+
+def test_role_aware_missing_stat_raises_incomplete():
+    pool = _role_pool()
+    pool.loc[pool["Player"] == "Q", "b"] = np.nan
+    with pytest.raises(similarity.IncompleteDataError):
+        similarity.rank_role_aware(pool, "Q", "2025-2026", ["a", "b", "c"], 5)
+
+
+def test_newer_outfielder_compares_across_positions_and_falls_back_without_roles(monkeypatch):
+    pool = _role_pool().assign(Source="API-Football", League="Premier League")
+    monkeypatch.setattr(similarity, "mode_template", lambda mode, family, group: ["a", "b", "c"])
+    out = similarity.similar_in_pool(pool, "Q", "2025-2026", similarity.MODE_SHARED, 40)
+    assert {"MID", "DEF"} <= set(out["position_group"])  # other groups are candidates
+    # without a role mix the query is ranked as before: his own position group only
+    no_role = pool.copy()
+    no_role.loc[no_role["Player"] == "Q", list(metrics.ROLE_COLUMNS)] = np.nan
+    out = similarity.similar_in_pool(no_role, "Q", "2025-2026", similarity.MODE_SHARED, 40)
+    assert set(out["position_group"]) == {"ATT"} and "main_role" not in out.columns
+
+
+def test_outfield_pool_sql_covers_every_outfield_group():
+    sql = " ".join(similarity.pool_sql(similarity.OUTFIELD, "2025-2026").split())
+    assert "position_group IN ('ATT', 'MID', 'DEF')" in sql

@@ -133,7 +133,7 @@ def test_similar_players_ranks_the_cached_pool_for_the_max_once(monkeypatch):
     bq = object()
     data.similar_players(bq, "A", "2025-2026", "ATT", data.MODE_SHARED)
     data.similar_players(bq, "A", "2025-2026", "ATT", data.MODE_SHARED)
-    assert seen == [("pool", "ATT", "2025-2026", False),
+    assert seen == [("pool", "OUT", "2025-2026", False),
                     ("rank", "A", "2025-2026", data.MODE_SHARED, data.SIMILAR_MAX)]
     data.similar_players(bq, "A", "2025-2026", "MID", data.MODE_SHARED)  # group is in the cache key
     assert len(seen) == 4
@@ -143,7 +143,7 @@ def test_similar_players_trial_mode_fetches_the_paired_season(monkeypatch):
     seen = []
     _record_pool(monkeypatch, seen)
     data.similar_players(object(), "A", "2025-2026", "ATT", data.MODE_TRIAL)
-    assert seen[0] == ("pool", "ATT", "2025-2026", True)
+    assert seen[0] == ("pool", "OUT", "2025-2026", True)
     assert seen[1][3] == data.MODE_TRIAL
 
 

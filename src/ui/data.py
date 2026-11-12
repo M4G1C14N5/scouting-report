@@ -25,6 +25,7 @@ from src.similarity import (
     MIN_MINUTES,
     MODE_SHARED,
     MODE_TRIAL,
+    OUTFIELD,
     OUTFIELD_TABLE,
     get_player_stats,
     pool_sql,
@@ -92,7 +93,10 @@ def position_pool(_bq, position_group: str, season: str, paired: bool = False) -
 @st.cache_data(ttl=TTL, show_spinner="Finding similar players…")
 def similar_players(_bq, player: str, season: str, position_group: str,
                     mode: str = MODE_SHARED) -> pd.DataFrame:
-    """Top SIMILAR_MAX matches in a compare mode, ranked on the cached position
-    pool (with the paired season for the trial mode)."""
-    pool = position_pool(_bq, position_group, season, paired=mode == MODE_TRIAL)
+    """Top SIMILAR_MAX matches in a compare mode. Outfield players rank on the
+    season's whole outfield pool (newer seasons compare across positions on
+    style plus role mix; FBref seasons filter to their group); keepers on the
+    keeper pool. The trial mode adds the paired season."""
+    key = position_group if position_group == "GK" else OUTFIELD
+    pool = position_pool(_bq, key, season, paired=mode == MODE_TRIAL)
     return similar_in_pool(pool, player, season, mode, SIMILAR_MAX)

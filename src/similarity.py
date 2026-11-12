@@ -201,6 +201,18 @@ INCOMPLETE = ("This player's data is incomplete for this comparison (missing: {m
 #                        would exclude him; dribbles attempted and completed
 #                        (per 90) carry the dribbling instead
 NOT_IN_TEMPLATES = frozenset({"goals_added", "dribble_success_pct"})
+# Newer-season stats that say little about how a player plays, left out of the
+# role-aware comparison (they stay Profile and Stats bars).
+STYLE_DROP = frozenset({"yellow_cards", "fouls_committed", "match_rating", "blocks_total"})
+
+# Pool key for every outfield player (ATT, MID and DEF) of a season: newer-season
+# outfielders are compared across positions on style plus role mix.
+OUTFIELD = "OUT"
+OUTFIELD_GROUPS = ("ATT", "MID", "DEF")
+# Weight of the role-mix block against the z-scored style block. Each role share
+# is centred on the pool mean and multiplied by this; the style stats have unit
+# variance each. Set from the sanity set (see rank_role_aware).
+ROLE_WEIGHT = 2.0
 
 
 class IncompleteDataError(ValueError):
@@ -253,7 +265,8 @@ def mode_template(mode: str, family: str, group: str) -> list[str]:
     keys = list(metrics.family_set(family, group))
     if mode == MODE_BIG_FIVE:
         keys += list(metrics.BIG_FIVE_EXTRAS)
-    return [k for k in keys if k not in NOT_IN_TEMPLATES]
+    drop = NOT_IN_TEMPLATES | (STYLE_DROP if group != "GK" else frozenset())
+    return [k for k in keys if k not in drop]
 
 
 def _all_templates() -> list[list[str]]:
@@ -262,6 +275,8 @@ def _all_templates() -> list[list[str]]:
         for group in ("ATT", "MID", "DEF", "GK"):
             for mode in MODES:
                 out.append(mode_template(mode, family, group))
+            # the whole family set, STYLE_DROP included: compare views rank on it per 90 too
+            out.append(list(metrics.family_set(family, group)))
     return out
 
 
@@ -274,15 +289,17 @@ PER90_FEATURES = frozenset(
 )
 
 
-def mode_pool(pool: pd.DataFrame, query_row, mode: str) -> pd.DataFrame:
-    """The rows a mode compares with: same position group always; the query's
-    family and season (shared), big-five players of that season (big five),
-    or both regions in the season and its paired season (trial)."""
+def mode_pool(pool: pd.DataFrame, query_row, mode: str, same_group: bool = True) -> pd.DataFrame:
+    """The rows a mode compares with: the same position group (or, with
+    same_group=False, every outfield group); the query's family and season
+    (shared), big-five players of that season (big five), or both regions in
+    the season and its paired season (trial)."""
     season = query_row["Season"]
     family = metrics.family_of(query_row.get("Source"))
     fam = (pool["Source"].map(metrics.family_of) if "Source" in pool.columns
            else pd.Series(metrics.FBREF, index=pool.index))
-    keep = pool["position_group"] == query_row["position_group"]
+    keep = (pool["position_group"] == query_row["position_group"] if same_group
+            else pool["position_group"].isin(OUTFIELD_GROUPS))
     if mode == MODE_TRIAL:
         keep &= fam.isin([metrics.EUROPE, metrics.US])
         keep &= pool["Season"].isin([season, paired_season(season)])
@@ -304,10 +321,12 @@ def pool_sql(position_group: str, season: str, paired: bool = False) -> str:
     table = table_ref(GOALKEEPER_TABLE if position_group == "GK" else OUTFIELD_TABLE)
     other = paired_season(season) if paired else None
     seasons = f"Season IN ('{season}', '{other}')" if other else f"Season = '{season}'"
+    group = (f"position_group IN ({', '.join(repr(g) for g in OUTFIELD_GROUPS)})"
+             if position_group == OUTFIELD else f"position_group = '{position_group}'")
     return f"""
         SELECT *
         FROM {table}
-        WHERE position_group = '{position_group}'
+        WHERE {group}
           AND {seasons}
           AND minutes >= {MIN_MINUTES}
     """
@@ -454,6 +473,58 @@ def rank_fixed(
     )
 
 
+RESULT_COLUMNS = ["Player", "Squad", "League", "Season", "position_group", "minutes"]
+
+
+def has_role_mix(row) -> bool:
+    return all(not pd.isna(row.get(c)) for c in metrics.ROLE_COLUMNS)
+
+
+def rank_role_aware(
+    pool_df: pd.DataFrame,
+    player: str,
+    season: str,
+    template: list[str],
+    top_n: int,
+    role_weight: float | None = None,
+) -> pd.DataFrame:
+    """Rank on style plus role mix. Candidates: rows with every template stat
+    and a role mix (any position group). Style block: the template, season
+    totals per 90, z-scored over the candidates and the query player. Role
+    block: the five role shares minus their mean over the same rows, times
+    role_weight (ROLE_WEIGHT by default). Cosine on both blocks together, so a
+    player with the same numbers from a neighbouring role can still rank, a
+    step below one from the same role. Raises IncompleteDataError when the
+    query player lacks a template stat; the caller checks has_role_mix."""
+    if not template:
+        raise NotEnoughStatsError()
+    weight = ROLE_WEIGHT if role_weight is None else role_weight
+    roles = list(metrics.ROLE_COLUMNS)
+    pool_reset = with_per90(pool_df.reset_index(drop=True), template)
+    query_mask = (pool_reset["Player"] == player) & (pool_reset["Season"] == season)
+    query_row = pool_reset[query_mask].iloc[0]
+    missing = [c for c in template if c not in pool_reset.columns or pd.isna(query_row[c])]
+    if missing:
+        raise IncompleteDataError(missing)
+    complete = pool_reset[template + roles].notna().all(axis=1)
+    scored = pool_reset[(complete & ~query_mask) | query_mask].reset_index(drop=True).copy()
+    scored_query = (scored["Player"] == player) & (scored["Season"] == season)
+    style = _zscore_matrix(scored, template)
+    shares = scored[roles].astype(float).fillna(0.0)
+    role_block = (shares - shares.mean()).values * weight
+    X = np.hstack([style, role_block])
+    scored["similarity_score"] = _cosine_similarity(X[scored.index[scored_query][0]], X)
+    main = scored[roles].astype(float).fillna(0.0)
+    scored["main_role"] = main.idxmax(axis=1).str.removeprefix("role_").str.upper()
+    scored["main_role_share"] = main.max(axis=1)
+    return (
+        scored[~scored_query]
+        .sort_values("similarity_score", ascending=False)
+        .head(top_n)[RESULT_COLUMNS + ["main_role", "main_role_share", "similarity_score"]]
+        .reset_index(drop=True)
+    )
+
+
 def similar_in_pool(
     pool_df: pd.DataFrame,
     player: str,
@@ -476,12 +547,16 @@ def similar_in_pool(
     if mode not in modes_for(family, group, big_five):
         raise ValueError(f"'{mode}' is not available for {player} ({season}).")
     if family == metrics.FBREF:
-        return rank_similar(pool_df[pool_df["Season"] == season], player, season,
-                            FEATURE_TEMPLATES[group], top_n)
-    compared = mode_pool(pool_df, row, mode)
+        same = (pool_df["Season"] == season) & (pool_df["position_group"] == group)
+        return rank_similar(pool_df[same], player, season, FEATURE_TEMPLATES[group], top_n)
+    role_aware = group != "GK" and has_role_mix(row)
+    compared = mode_pool(pool_df, row, mode, same_group=not role_aware)
     if mode == MODE_TRIAL and not (compared["Season"] == paired_season(season)).any():
         raise NoPairedSeasonError()  # FBref rows never count: mode_pool keeps Europe and US
-    return rank_fixed(compared, player, season, mode_template(mode, family, group), top_n)
+    template = mode_template(mode, family, group)
+    if role_aware:
+        return rank_role_aware(compared, player, season, template, top_n)
+    return rank_fixed(compared, player, season, template, top_n)
 
 
 def find_similar_players(

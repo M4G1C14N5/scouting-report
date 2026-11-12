@@ -628,14 +628,14 @@ def test_similar_big_five_player_has_three_modes(real_similarity):
     assert control.options == [similarity.MODE_SHARED, similarity.MODE_BIG_FIVE, similarity.MODE_TRIAL]
     assert control.value == similarity.MODE_SHARED
     assert "Compare on" in _markdown(at)
-    assert "the same 19 stats" in _captions(at)
+    assert "the same 15 stats" in _captions(at)
     assert set(at.dataframe[0].value["League"]) >= {"League Two"}
     assert similarity.BIG_FIVE_NOTE not in _captions(at)
 
     _mode(at, similarity.MODE_BIG_FIVE)
     assert similarity.BIG_FIVE_NOTE in _captions(at)
     assert set(at.dataframe[0].value["League"]) <= {"Premier League", "La Liga"}
-    assert "the same 24 stats" in _captions(at)
+    assert "the same 20 stats" in _captions(at)
 
     _mode(at, similarity.MODE_TRIAL)
     assert similarity.TRIAL_NOTE in "\n".join(i.value for i in at.info)
