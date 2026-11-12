@@ -170,6 +170,7 @@ OUTFIELD_COLUMNS = [
     "duels_won_pct", "goals_added", "goals_added_above_avg", "ga_shooting", "ga_passing",
     "ga_receiving", "ga_dribbling", "ga_interrupting", "ga_fouling", "fouls_committed",
     "penalties_conceded", "offsides", "photo_url",
+    "role_st", "role_amw", "role_cm", "role_fb", "role_cb", "main_role",
 ]
 GOALKEEPER_COLUMNS = [
     "Player", "Nation", "Position", "Squad", "League", "Age", "Born", "Season",
@@ -238,6 +239,29 @@ ASA_PHOTO_SQL = (
 )
 
 
+def _role_sql(tables: set[str], apif: str) -> tuple[str, str]:
+    """(select list, joins) for the role inputs: API-Football rows take
+    player_role_mix's shares (rm_*), ASA rows their general positions (asa_*).
+    A warehouse built before a table existed gives nulls instead."""
+    shares = ("st", "amw", "cm", "fb", "cb")
+    if "player_role_mix" in tables:
+        select = ", ".join(f"rm.role_{r} AS rm_{r}" for r in shares) + ", rm.main_role AS rm_main"
+        join = (f" LEFT JOIN player_role_mix rm ON {apif}"
+                "   AND rm.player_id = TRY_CAST(p.source_player_id AS BIGINT)"
+                "   AND rm.league_id = p.league_id AND rm.season = p.season")
+    else:
+        select = ", ".join(f"NULL::DOUBLE AS rm_{r}" for r in shares) + ", NULL::VARCHAR AS rm_main"
+        join = ""
+    if "stg_asa__players" in tables:
+        select += (", asp.primary_general_position AS asa_primary,"
+                   " asp.secondary_general_position AS asa_secondary")
+        join += (" LEFT JOIN stg_asa__players asp ON p.source = 'asa'"
+                 "   AND asp.player_id = p.source_player_id AND asp.league = lower(p.league_code)")
+    else:
+        select += ", NULL::VARCHAR AS asa_primary, NULL::VARCHAR AS asa_secondary"
+    return select, join
+
+
 def read_players(path: Path | str) -> pd.DataFrame:
     """Rows of player_season_stats in LEAGUES and SEASONS with at least 90 minutes.
 
@@ -254,10 +278,18 @@ def read_players(path: Path | str) -> pd.DataFrame:
     )
     params = [*leagues, *seasons, MIN_MINUTES]
     apif = "p.source IN ('apif', 'apif_matches')"
+    con = duckdb.connect(str(path), read_only=True)
+    try:
+        tables = {r[0] for r in con.execute("SELECT table_name FROM information_schema.tables").fetchall()}
+    except Exception:
+        con.close()
+        raise
+    role_select, role_join = _role_sql(tables, apif)
     sql = (
         "SELECT p.*, us.player_name AS understat_name, pr.first_name AS profile_first_name,"
         " pr.nationality AS profile_nationality,"
-        " COALESCE(pr.photo_url, ap.photo_url) AS photo_url"
+        " COALESCE(pr.photo_url, ap.photo_url) AS photo_url,"
+        f" {role_select}"
         " FROM player_season_stats p"
         " LEFT JOIN league_info li ON li.apif_league_id = p.league_id"
         f" LEFT JOIN int_understat__apif_match m ON {apif}"
@@ -270,10 +302,9 @@ def read_players(path: Path | str) -> pd.DataFrame:
         "   AND pr.player_id = TRY_CAST(p.source_player_id AS BIGINT)"
         f" LEFT JOIN ({ASA_PHOTO_SQL}) ap ON p.source = 'asa'"
         "   AND ap.source_player_id = p.source_player_id"
-        + where +
+        + role_join + where +
         " ORDER BY p.league_code, p.season_label, p.player_name, p.team"
     )
-    con = duckdb.connect(str(path), read_only=True)
     try:
         players = con.execute(sql, params).df()
         expected = con.execute("SELECT count(*) FROM player_season_stats p" + where,
@@ -332,7 +363,43 @@ def _identity(p: pd.DataFrame) -> dict[str, pd.Series]:
         "minutes": minutes,
         "nineties_played": minutes / 90,
         "photo_url": text("photo_url") if "photo_url" in p else pd.Series(None, index=p.index, dtype=object),
+        **_roles(p),
     }
+
+
+def _asa_shares(primary, secondary) -> dict[str, float] | None:
+    """ASA general positions -> role shares: the primary 0.7 and the secondary 0.3
+    when it is another outfield role, else the primary 1.0. None without a primary role."""
+    first = ASA_ROLES.get(primary) if isinstance(primary, str) else None
+    if first is None:
+        return None
+    second = ASA_ROLES.get(secondary) if isinstance(secondary, str) else None
+    if second is None or second == first:
+        return {first: 1.0}
+    return {first: ASA_PRIMARY_SHARE, second: 1 - ASA_PRIMARY_SHARE}
+
+
+def _roles(p: pd.DataFrame) -> dict[str, pd.Series]:
+    """role_st ... role_cb and main_role (ST/AMW/CM/FB/CB): API-Football rows from
+    player_role_mix (rm_*), ASA rows from their general positions. Null when unknown."""
+    out = {col: pd.Series(np.nan, index=p.index, dtype=float) for col in ROLE_COLUMNS}
+    main = pd.Series(None, index=p.index, dtype=object)
+    for col in ROLE_COLUMNS:
+        mixed = f"rm_{col.removeprefix('role_')}"
+        if mixed in p:
+            out[col] = pd.to_numeric(p[mixed], errors="coerce").astype(float)
+    if "rm_main" in p:
+        main = p["rm_main"].astype(object).where(p["rm_main"].notna(), None)
+    if "asa_primary" in p:
+        for i in p.index[p["source"] == "asa"]:
+            shares = _asa_shares(p.at[i, "asa_primary"], p.at[i, "asa_secondary"])
+            if shares is None:
+                continue
+            for col in ROLE_COLUMNS:
+                out[col].at[i] = shares.get(col.removeprefix("role_"), 0.0)
+            main.at[i] = max(shares, key=shares.get).upper()
+    out["main_role"] = main
+    return out
 
 
 def _frame(values: dict[str, pd.Series], columns: list[str], index, source: pd.Series):
@@ -659,8 +726,14 @@ def _sql_type(field_type: str) -> str:
     return _SQL_TYPES.get(field_type.upper(), field_type.upper())
 
 
+# Role-mix columns (outfield): share of minutes per role, and the main role.
+ROLE_COLUMNS = ("role_st", "role_amw", "role_cm", "role_fb", "role_cb")
 # Non-metric columns the FBref tables lack, with their BigQuery types.
-TEXT_COLUMNS = {"photo_url": "STRING"}
+TEXT_COLUMNS = {"photo_url": "STRING", "main_role": "STRING",
+                **{col: "FLOAT64" for col in ROLE_COLUMNS}}
+# ASA general position -> Hub role. GK has no outfield role.
+ASA_ROLES = {"W": "amw", "AM": "amw", "CM": "cm", "DM": "cm", "ST": "st", "FB": "fb", "CB": "cb"}
+ASA_PRIMARY_SHARE = 0.7  # the rest goes to the secondary position, when it is another role
 
 
 def bq_type(column: str) -> str:

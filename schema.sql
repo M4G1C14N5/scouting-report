@@ -314,7 +314,15 @@ SELECT
     CAST(NULL AS INT64)   AS penalties_conceded,
     CAST(NULL AS INT64)   AS offsides,
     -- Player photo URL (API-Football)
-    CAST(NULL AS STRING)  AS photo_url
+    CAST(NULL AS STRING)  AS photo_url,
+    -- Role mix: share of minutes as striker, attacking mid / winger, central mid, fullback,
+    -- centre-back (formation slots in Europe, ASA positions in the US) and the main role
+    CAST(NULL AS FLOAT64) AS role_st,
+    CAST(NULL AS FLOAT64) AS role_amw,
+    CAST(NULL AS FLOAT64) AS role_cm,
+    CAST(NULL AS FLOAT64) AS role_fb,
+    CAST(NULL AS FLOAT64) AS role_cb,
+    CAST(NULL AS STRING)  AS main_role
 
 FROM `scouting.standard` s
 LEFT JOIN `scouting.shooting`  sh ON s.Player = sh.Player AND s.Season = sh.Season

@@ -371,8 +371,8 @@ ASA_ONLY = {"goals_added", "goals_added_above_avg", "ga_dribbling", "ga_passing"
 
 
 def test_every_newer_source_column_is_mapped():
-    assert NEWER_MAPPED | {"photo_url"} == set(newer_source_columns("outfield_features"))
-    assert loader.bq_type("photo_url") == "STRING"
+    assert NEWER_MAPPED | set(loader.TEXT_COLUMNS) == set(newer_source_columns("outfield_features"))
+    assert loader.bq_type("photo_url") == "STRING" and loader.bq_type("role_amw") == "FLOAT64"
 
 
 def test_read_players_attaches_photos_and_profile_nationality(tmp_path):
@@ -950,3 +950,53 @@ def test_cli_dry_run_never_builds_a_bigquery_client(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Premier League" in out and "2025-2026" in out
     assert "dry run" in out.lower()
+
+
+def test_asa_shares_from_general_positions():
+    assert loader._asa_shares("W", "CM") == {"amw": 0.7, "cm": pytest.approx(0.3)}
+    assert loader._asa_shares("ST", None) == {"st": 1.0}
+    assert loader._asa_shares("AM", "W") == {"amw": 1.0}  # both map to AM/W
+    assert loader._asa_shares("DM", "GK") == {"cm": 1.0}  # GK is no outfield role
+    assert loader._asa_shares(None, "CM") is None and loader._asa_shares("GK", None) is None
+
+
+def test_read_players_attaches_role_mix(tmp_path):
+    path = tmp_path / "warehouse.duckdb"
+    rows = [
+        _row(source="apif", source_player_id="306", league_id=39, season=2025,
+             league_code="ENG1", season_label="2025-2026", player_name="M. Salah",
+             position_group="ATT", minutes=2500),
+        _row(source="asa", source_player_id="asa-9", league_code="USL1", season_label="2026",
+             player_name="Wes Wide", position_group="ATT", minutes=1500),
+        _row(source="asa", source_player_id="asa-8", league_code="USL1", season_label="2026",
+             player_name="No Position", position_group="MID", minutes=1500),
+    ]
+    _make_warehouse(path, rows)
+    con = duckdb.connect(str(path))
+    con.execute("CREATE TABLE player_role_mix (player_id BIGINT, league_id INTEGER, season BIGINT, "
+                "role_minutes DOUBLE, main_role VARCHAR, role_gk DOUBLE, role_cb DOUBLE, role_fb DOUBLE, "
+                "role_cm DOUBLE, role_amw DOUBLE, role_st DOUBLE)")
+    con.execute("INSERT INTO player_role_mix VALUES (306, 39, 2025, 2400, 'AMW', 0, 0, 0, 0, 0.8, 0.2)")
+    con.execute("CREATE TABLE stg_asa__players (player_id VARCHAR, league VARCHAR, "
+                "primary_general_position VARCHAR, secondary_general_position VARCHAR)")
+    con.execute("INSERT INTO stg_asa__players VALUES ('asa-9', 'usl1', 'W', 'ST'), "
+                "('asa-8', 'usl1', NULL, NULL)")
+    con.close()
+
+    outfield, _ = loader.build_frames(loader.read_players(path))
+    by = outfield.set_index("Player")
+    salah = by.loc[by.index.str.contains("Salah")].iloc[0]
+    assert (salah["role_amw"], salah["role_st"], salah["role_cb"]) == (0.8, 0.2, 0.0)
+    assert salah["main_role"] == "AMW"
+    wes = by.loc["Wes Wide"]
+    assert wes["role_amw"] == 0.7 and wes["role_st"] == pytest.approx(0.3) and wes["role_cm"] == 0.0
+    assert wes["main_role"] == "AMW"
+    none = by.loc["No Position"]
+    assert pd.isna(none["role_amw"]) and none["main_role"] is None
+
+
+def test_read_players_without_role_tables_gives_null_roles(tmp_path):
+    path = tmp_path / "warehouse.duckdb"
+    _make_warehouse(path, ROWS)
+    outfield, _ = loader.build_frames(loader.read_players(path))
+    assert outfield["role_amw"].isna().all() and outfield["main_role"].isna().all()

@@ -16,7 +16,8 @@ IDENTITY_COLUMNS = frozenset(
     {"Player", "Nation", "Position", "Squad", "League", "Age", "Born", "Season", "position_group"}
 )
 # Non-stat columns of the newer sources (null for FBref): not metrics either.
-TEXT_COLUMNS = frozenset({"photo_url"})
+TEXT_COLUMNS = frozenset({"photo_url", "main_role", "role_st", "role_amw", "role_cm", "role_fb",
+                          "role_cb"})
 
 
 @lru_cache(maxsize=None)

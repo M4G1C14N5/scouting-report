@@ -73,7 +73,9 @@ NEWER = {
 def test_newer_source_metrics_kinds_and_categories():
     newer = set(newer_source_columns("outfield_features")) | set(
         newer_source_columns("goalkeeper_features"))
-    assert newer - {"photo_url"} == set(NEWER)
+    from tests.schema_utils import TEXT_COLUMNS
+
+    assert newer - TEXT_COLUMNS == set(NEWER)
     for key, (kind, category) in NEWER.items():
         assert (metrics.KIND[key], metrics.STAT_CATEGORIES[key]) == (kind, category), key
 
