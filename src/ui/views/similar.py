@@ -124,7 +124,7 @@ def render(bq, pool: pd.DataFrame | None, row) -> None:
     if st.session_state.get(state.SIMILAR_FOR) != (player, season, mode):
         st.session_state.pop(state.SIMILAR_TABLE, None)
         st.session_state[state.SIMILAR_FOR] = (player, season, mode)
-    shown = table.assign(Season=table["Season"].map(stats.short_season))  # "2023-24", like the rest of the app
+    shown = table.assign(Season=table["Season"].map(stats.season_option))  # "2023/24" or "2026 (US)"
     event = st.dataframe(shown, hide_index=True, width="stretch", on_select="rerun",
                          selection_mode="single-row", key=state.SIMILAR_TABLE,
                          column_config=COLUMN_CONFIG, column_order=COLUMN_ORDER)

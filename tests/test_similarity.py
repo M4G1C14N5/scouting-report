@@ -562,7 +562,7 @@ def test_trial_mode_without_a_paired_season_says_so():
 def test_trial_note_says_how_seasons_are_paired():
     assert similarity.TRIAL_NOTE.startswith(
         "Trial: compares European and US players on the seven stats both regions have")
-    assert "US 2026 with the European 2025-26" in similarity.TRIAL_NOTE
+    assert "US 2026 with the European 2025/26" in similarity.TRIAL_NOTE
 
 
 def test_trial_mode_is_not_offered_for_keepers_or_fbref():

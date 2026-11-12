@@ -53,14 +53,14 @@ def test_no_selection_shows_hero_onboarding_and_footer(stub_data):
     at = _app()
     md = _markdown(at)
     assert "Scouting <em>Hub</em>" in md
-    assert "19 leagues · FBref 2017-18 to 2023-24 · 2024 to 2026 from API-Football, Understat and ASA" in md
+    assert "19 leagues · FBref 2017/18 to 2023/24 · 2024 to 2026 from API-Football, Understat and ASA" in md
     assert 'class="fl-hero-meta">BigQuery<' in md
     assert "Set the scope" in md and "Find a player" in md and "Read the profile" in md
     assert at.button(key="try_example").label == "Try an example: Mohamed Salah"
     assert "Thomas Tsangou and Ajaiah Darlington" in md
     assert "FBref → GCS → BigQuery" in md
     data_credit = md.split("<strong>Data</strong>", 1)[1].split("</div>", 1)[0]
-    for source in ("FBref (Big 5, 2017-18 to 2023-24)", "API-Football", "Understat",
+    for source in ("FBref (Big 5, 2017/18 to 2023/24)", "API-Football", "Understat",
                    "American Soccer Analysis"):
         assert source in data_credit, source
     assert "19 leagues" in md.split('class="fl-brand-sub">', 1)[1].split("<", 1)[0]
@@ -89,7 +89,7 @@ def test_sidebar_opens_on_the_newest_european_season(stub_data, monkeypatch):
     monkeypatch.setattr(data, "load_player_index", lambda _bq: _index_with_new_seasons())
     at = _app()
     season = at.selectbox(key="f_season")
-    assert season.options[:4] == ["All", "2026", "2025-26", "2024-25"]  # newest first
+    assert season.options[:4] == ["All", "2026 (US)", "2025/26", "2024/25"]  # newest first
     assert season.value == "2025-2026"  # not "2026", which holds only US leagues
     assert at.button(key="try_example").label == "Try an example: Mohamed Salah"
 
@@ -100,7 +100,7 @@ def test_season_switch_lists_every_season_newest_first(stub_data, monkeypatch):
     at.selectbox(key="f_season").set_value("All").run()
     at.selectbox(key="player_pick").set_value("Mohamed Salah").run()
     switch = at.selectbox(key="season_switch")
-    assert switch.options == ["2025-26", "2024-25", "2023-24", "2022-23"]
+    assert switch.options == ["2025/26", "2024/25", "2023/24", "2022/23"]
     assert switch.value == "2025-2026"
 
 
@@ -116,7 +116,7 @@ def test_outfield_player_renders_every_tab(stub_data):
     at = _select(_app(), "Mohamed Salah")
     md = _markdown(at)
     assert "Forward" in md and "xAG" in md
-    assert "Ranked against 2 forwards in Premier League 2023-24 with 450+ minutes" in _captions(at)
+    assert "Ranked against 2 forwards in Premier League 2023/24 with 450+ minutes" in _captions(at)
     assert len(at.get("plotly_chart")) == 4  # profile cards with FBref stats
     assert len(at.dataframe) == 8  # 7 stat cards + similar table
     assert not at.error
@@ -126,7 +126,7 @@ def test_goalkeeper_renders_every_tab(stub_data):
     at = _select(_app(), "Alisson")
     md = _markdown(at)
     assert "Goalkeeper" in md and "Save %" in md and "Saves / 90" in md
-    assert "Ranked against 2 goalkeepers in Premier League 2023-24 with 450+ minutes" in _captions(at)
+    assert "Ranked against 2 goalkeepers in Premier League 2023/24 with 450+ minutes" in _captions(at)
     assert len(at.get("plotly_chart")) == 1
     assert len(at.dataframe) == 3  # 2 stat cards + similar table
     assert not at.error
@@ -139,7 +139,7 @@ def test_season_switcher_defaults_to_latest_and_sticks(stub_data):
     assert at.selectbox(key="season_switch").value == fakes.LATEST
     at.selectbox(key="season_switch").set_value(fakes.PREVIOUS).run()
     assert not at.exception
-    assert "Ranked against 1 forward in Premier League 2022-23 with 450+ minutes" in _captions(at)
+    assert "Ranked against 1 forward in Premier League 2022/23 with 450+ minutes" in _captions(at)
     at.slider(key="top_n").set_value(5).run()  # any rerun keeps the chosen season
     assert at.selectbox(key="season_switch").value == fakes.PREVIOUS
 
@@ -187,7 +187,7 @@ def test_season_switch_recovers_when_season_filter_narrows(stub_data):
     assert not at.exception
     assert at.session_state["player_pick"] == "Mohamed Salah"
     assert at.session_state["season_switch"] == fakes.LATEST  # fell back from the filtered-out season
-    assert "Ranked against 2 forwards in Premier League 2023-24 with 450+ minutes" in _captions(at)  # only 2023-24 is in view
+    assert "Ranked against 2 forwards in Premier League 2023/24 with 450+ minutes" in _captions(at)  # only 2023/24 is in view
 
 
 def test_view_profile_switches_player(stub_data):

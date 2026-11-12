@@ -114,11 +114,20 @@ def test_per90(total, nineties, expected):
 
 @pytest.mark.parametrize(
     "season, short",
-    [("2022-2023", "2022-23"), ("2019-2020", "2019-20"), ("2023", "2023"), ("All", "All"),
-     ("2025-2026", "2025-26"), ("2026", "2026")],
+    [("2022-2023", "2022/23"), ("2019-2020", "2019/20"), ("2023", "2023"), ("All", "All"),
+     ("2025-2026", "2025/26"), ("2026", "2026")],
 )
 def test_short_season(season, short):
     assert stats.short_season(season) == short
+
+
+@pytest.mark.parametrize(
+    "season, label",
+    [("2025-2026", "2025/26"), ("2026", "2026 (US)"), ("2017-2018", "2017/18"), ("All seasons", "All seasons")],
+)
+def test_season_option_marks_us_calendar_seasons(season, label):
+    # a list that mixes both kinds needs the US calendar seasons named as such
+    assert stats.season_option(season) == label
 
 
 def test_season_sort_key_orders_by_leading_year_then_label_length():

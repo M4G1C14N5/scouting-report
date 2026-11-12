@@ -227,7 +227,7 @@ def hero_html(title: str, highlight: str, sub: str, meta: str) -> str:
 
 def brand_html() -> str:
     return ('<div class="fl-brand">⚽ Scouting <em>Hub</em></div>'
-            '<div class="fl-brand-sub">19 leagues · 2017-18 to 2026</div>')
+            '<div class="fl-brand-sub">19 leagues · 2017/18 to 2026</div>')
 
 
 def section_label_html(text: str) -> str:

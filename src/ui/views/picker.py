@@ -26,7 +26,7 @@ def _init(key: str, value: object) -> None:
 
 
 def _season_label(value: str) -> str:
-    return value if value == state.ALL_SEASONS else stats.short_season(value)
+    return value if value == state.ALL_SEASONS else stats.season_option(value)
 
 
 def sidebar(index: pd.DataFrame) -> pd.DataFrame:
@@ -100,4 +100,4 @@ def season_switch(filtered: pd.DataFrame, player: str) -> str | None:
         return seasons[0]
     st.markdown(theme.section_label_html("Season"), unsafe_allow_html=True)
     return st.selectbox("Season", seasons[::-1], key=state.SWITCH,
-                        format_func=stats.short_season, label_visibility="collapsed")
+                        format_func=stats.season_option, label_visibility="collapsed")

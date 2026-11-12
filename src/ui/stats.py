@@ -19,6 +19,7 @@ BAND_EDGES = (25.0, 50.0, 75.0)  # <25, 25-49, 50-74, 75+
 MISSING = "—"
 _SEASON = re.compile(r"^(\d{4})-(\d{4})$")
 _LEADING_YEAR = re.compile(r"^(\d{4})")
+_US_SEASON = re.compile(r"^\d{4}$")
 
 
 class Band(NamedTuple):
@@ -114,10 +115,17 @@ def per90(total: Any, nineties: Any) -> float | None:
 
 
 def short_season(season: str) -> str:
-    """"2022-2023" -> "2022-23"; anything else ("2026", a US calendar season)
-    is returned unchanged."""
+    """"2022-2023" -> "2022/23", the usual way to write a European season;
+    anything else ("2026", a US calendar season) is returned unchanged."""
     m = _SEASON.match(str(season))
-    return f"{m.group(1)}-{m.group(2)[2:]}" if m else str(season)
+    return f"{m.group(1)}/{m.group(2)[2:]}" if m else str(season)
+
+
+def season_option(season: str) -> str:
+    """short_season for lists that mix European and US seasons: a US calendar
+    season reads "2026 (US)" so it is not mistaken for half of "2025/26"."""
+    text = str(season)
+    return f"{text} (US)" if _US_SEASON.match(text) else short_season(text)
 
 
 def season_sort_key(season: str) -> tuple[int, int]:

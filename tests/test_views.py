@@ -126,7 +126,7 @@ def stub_similar(monkeypatch):
 
 def test_header_outfield_identity_and_kpis():
     md = _markdown(_run(header_script, "Mohamed Salah", fakes.LATEST))
-    for text in ("Mohamed Salah", ">MS<", "Forward", "Liverpool", "Premier League", "2023-24",
+    for text in ("Mohamed Salah", ">MS<", "Forward", "Liverpool", "Premier League", "2023/24",
                  "Age 31", "EGY", "Minutes", "Goals", "Assists", "xG", "xAG", "fl-kpi-row"):
         assert text in md, text
 
@@ -171,7 +171,7 @@ def test_header_goalkeeper_kpis():
 
 def test_profile_outfield_cards_and_pool_caption():
     at = _run(profile_script, "Mohamed Salah", fakes.LATEST, "ATT", False)
-    assert "Ranked against 2 forwards in Premier League 2023-24 with 450+ minutes" in _captions(at)
+    assert "Ranked against 2 forwards in Premier League 2023/24 with 450+ minutes" in _captions(at)
     md = _markdown(at)
     for category in ("Shooting", "Chance creation", "Passing", "Possession and dribbling"):
         assert category in md, category
@@ -187,7 +187,7 @@ def test_profile_outfield_cards_and_pool_caption():
 
 def test_profile_goalkeeper():
     at = _run(profile_script, "Alisson", fakes.LATEST, "GK", False)
-    assert "Ranked against 2 goalkeepers in Premier League 2023-24 with 450+ minutes" in _captions(at)
+    assert "Ranked against 2 goalkeepers in Premier League 2023/24 with 450+ minutes" in _captions(at)
     assert len(at.get("plotly_chart")) == 1
     assert _markdown(at).count('class="fl-band-row"') == 4
 
@@ -214,11 +214,11 @@ def test_profile_all_leagues_ranks_across_the_whole_pool():
     same = _bar_values(at)
     at.selectbox(key="profile_compare").set_value("All leagues in this season").run()
     assert not at.exception
-    assert "Ranked against 6 forwards in all leagues in 2023-24 with 450+ minutes" in _captions(at)
+    assert "Ranked against 6 forwards in all leagues in 2023/24 with 450+ minutes" in _captions(at)
     assert _bar_values(at) != same  # a different pool gives different percentiles
     at.selectbox(key="profile_compare").set_value("Same league").run()
     assert _bar_values(at) == same
-    assert "Ranked against 2 forwards in Premier League 2023-24" in _captions(at)
+    assert "Ranked against 2 forwards in Premier League 2023/24" in _captions(at)
 
 
 def _bar_values(at) -> list:
@@ -232,7 +232,7 @@ def _bar_values(at) -> list:
 
 def test_profile_same_league_with_one_player_says_one_player():
     at = _run(profile_script, "Kylian Mbappé", fakes.LATEST, "ATT", False)
-    assert "Ranked against 1 forward in Ligue 1 2023-24 with 450+ minutes" in _captions(at)
+    assert "Ranked against 1 forward in Ligue 1 2023/24 with 450+ minutes" in _captions(at)
 
 
 def test_profile_hides_metrics_the_chosen_pool_mostly_lacks():
@@ -309,7 +309,7 @@ def test_similar_table_and_method_line(stub_similar):
     assert len(table) == 5 and table.iloc[0]["Player"] == "Erling Haaland"
     assert at.slider(key="top_n").value == 10
     assert len(at.get("plotly_chart")) == 0  # nothing selected yet
-    assert not table["Season"].str.contains("-20").any()  # short form, "2023-24"
+    assert not table["Season"].str.contains("-20").any()  # short form, "2023/24"
 
 
 def test_similar_selection_shows_dumbbell_and_view_profile_jumps(stub_similar):
@@ -630,7 +630,7 @@ def test_similar_big_five_player_has_three_modes(real_similarity):
 
     _mode(at, similarity.MODE_TRIAL)
     assert similarity.TRIAL_NOTE in "\n".join(i.value for i in at.info)
-    assert "2026" in set(at.dataframe[0].value["Season"])  # US players of the paired season
+    assert "2026 (US)" in set(at.dataframe[0].value["Season"])  # US players of the paired season
 
 
 def test_similar_other_european_player_has_no_big_five_mode(real_similarity):
@@ -647,7 +647,7 @@ def test_similar_us_player_modes_and_trial(real_similarity):
     assert at.selectbox(key="similar_mode").options == [similarity.MODE_SHARED, similarity.MODE_TRIAL]
     assert set(at.dataframe[0].value["League"]) == {"MLS"}
     _mode(at, similarity.MODE_TRIAL)
-    assert "2025-26" in set(at.dataframe[0].value["Season"])
+    assert "2025/26" in set(at.dataframe[0].value["Season"])
 
 
 def test_similar_incomplete_player_gets_the_message_and_can_switch_mode(real_similarity):
@@ -694,7 +694,7 @@ def test_similar_trial_compare_view_reaches_the_paired_season(real_similarity):
     at = _run(similar_new_script, "US Forward 1", fakes.US_SEASON)
     _mode(at, similarity.MODE_TRIAL)
     seasons = list(at.dataframe[0].value["Season"])
-    row = next(i for i, season in enumerate(seasons) if season == "2025-26")
+    row = next(i for i, season in enumerate(seasons) if season == "2025/26")
     at.session_state["similar_table"] = {"selection": {"rows": [row], "columns": []}}
     at.run()
     assert not at.exception

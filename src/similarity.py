@@ -188,7 +188,7 @@ TRIAL_NOTE = ("Trial: compares European and US players on the seven stats both r
               "(goals, assists, shots, shots on target, key passes, passes, pass completion). "
               "League strength differs a lot between these leagues, so read a match as a "
               "similar style of play, not a similar level. Seasons are paired by the year they "
-              "end: US 2026 with the European 2025-26, US 2025 with 2024-25.")
+              "end: US 2026 with the European 2025/26, US 2025 with 2024/25.")
 NO_PAIRED_SEASON = "No paired European season with matching stats for this season."
 INCOMPLETE = ("This player's data is incomplete for this comparison (missing: {missing}). "
               "Try another mode.")
