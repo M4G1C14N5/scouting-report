@@ -12,6 +12,9 @@ from src.ui import build, metrics, stats, theme
 def chips_for(row: Mapping[str, Any]) -> list[str]:
     group = row.get("position_group")
     chips = [theme.chip(metrics.POSITION_NAMES.get(group, str(group)), accent=True)]
+    role = row.get("main_role")  # newer seasons: where he actually lined up most
+    if not stats.is_missing(role) and str(role) in metrics.ROLE_NAMES:
+        chips.append(theme.chip(f"Mostly {metrics.ROLE_NAMES[str(role)].lower()}"))
     for key in ("Squad", "League"):
         if not stats.is_missing(row.get(key)):
             chips.append(theme.chip(str(row.get(key))))

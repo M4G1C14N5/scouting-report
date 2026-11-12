@@ -265,7 +265,18 @@ def test_similar_table_renames_for_display():
     })
     out = build.similar_table(sim)
     assert tuple(out.columns) == build.SIMILAR_COLUMNS
-    assert out.iloc[0].tolist() == ["B", "Club B", "Serie A", "2023-2024", "Forward", 2000, 0.912]
+    assert out.iloc[0].tolist() == ["B", "Club B", "Serie A", "2023-2024", "Forward", "", 2000, 0.912]
+
+
+def test_similar_table_role_column_shows_main_role_and_share():
+    sim = pd.DataFrame({
+        "Player": ["B", "C"], "Squad": ["X", "Y"], "League": ["La Liga"] * 2,
+        "Season": ["2025-2026"] * 2, "position_group": ["MID", "ATT"], "minutes": [2000, 1500],
+        "main_role": ["AMW", None], "main_role_share": [0.853, None], "similarity_score": [0.9, 0.8],
+    })
+    out = build.similar_table(sim)
+    assert list(out["Role"]) == ["AM/W 85%", ""]
+    assert build.role_text("CB", 1.0) == "CB 100%" and build.role_text("GK", 1.0) == ""
 
 
 # --- fixed family sets ---------------------------------------------------------

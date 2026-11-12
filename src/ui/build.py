@@ -10,7 +10,7 @@ from src.ui import metrics, stats
 
 STAT_TABLE_COLUMNS = ("Stat", "Total", "Per 90")
 MIN_COVERAGE = 0.8  # a metric needs values for this share of the pool to be drawn as a bar
-SIMILAR_COLUMNS = ("Player", "Club", "League", "Season", "Position", "Minutes", "Similarity")
+SIMILAR_COLUMNS = ("Player", "Club", "League", "Season", "Position", "Role", "Minutes", "Similarity")
 
 
 class PctRow(NamedTuple):
@@ -200,14 +200,29 @@ def kpi_tiles(row: Mapping[str, Any], group: str) -> list[tuple[str, str, str]]:
     return tiles
 
 
+def role_text(main_role: Any, share: Any) -> str:
+    """"AM/W 85%": the main role and its share of minutes; blank when unknown."""
+    if stats.is_missing(main_role) or str(main_role) not in metrics.ROLE_SHORT:
+        return ""
+    value = stats.to_float(share)
+    pct = "" if value is None else f" {value * 100:.0f}%"
+    return f"{metrics.ROLE_SHORT[str(main_role)]}{pct}"
+
+
 def similar_table(similar: pd.DataFrame) -> pd.DataFrame:
-    """find_similar_players output with readable column names."""
+    """find_similar_players output with readable column names. Role: the main
+    role and its share ("AM/W 85%") on role-aware rankings, else blank."""
+    if "main_role" in similar.columns:
+        role = [role_text(r, s) for r, s in zip(similar["main_role"], similar["main_role_share"])]
+    else:
+        role = [""] * len(similar)
     out = pd.DataFrame({
         "Player": similar["Player"].astype(str),
         "Club": similar["Squad"],
         "League": similar["League"],
         "Season": similar["Season"],
         "Position": similar["position_group"].map(lambda g: metrics.POSITION_NAMES.get(g, g)),
+        "Role": role,
         "Minutes": pd.to_numeric(similar["minutes"], errors="coerce"),
         "Similarity": pd.to_numeric(similar["similarity_score"], errors="coerce").round(3),
     })

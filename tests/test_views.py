@@ -723,3 +723,22 @@ def test_header_nation_chip_has_a_flag():
     assert 'src="https://flagcdn.com/w40/gb-eng.png"' in chips and ">ENG</span>" in chips
     assert header.photo_of({"photo_url": " "}) is None and header.photo_of({"photo_url": None}) is None
     assert header.photo_of({"photo_url": "https://x/1.png"}) == "https://x/1.png"
+
+
+def test_header_shows_where_the_player_lined_up():
+    from src.ui.views import header
+
+    row = {"Player": "Michael Olise", "position_group": "MID", "Season": "2025-2026",
+           "main_role": "AMW", "Source": "API-Football + Understat"}
+    chips = "".join(header.chips_for(row))
+    assert ">Mostly attacking mid / winger<" in chips
+    assert "Mostly" not in "".join(header.chips_for({**row, "main_role": None}))
+
+
+def test_role_aware_method_text_explains_style_plus_role():
+    from src import similarity
+    from src.ui.views import similar
+
+    text = similar.method_text(similarity.MODE_SHARED, "europe", "MID", "2025-2026", role_aware=True)
+    assert "style plus role" in text and "centre-back" in text and "same position" not in text
+    assert "same position" in similar.method_text(similarity.MODE_SHARED, "europe", "MID", "2025-2026")

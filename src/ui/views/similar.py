@@ -26,14 +26,16 @@ COLUMN_CONFIG = {
     "League": st.column_config.TextColumn("League"),
     "Season": st.column_config.TextColumn("Season"),
     "Position": st.column_config.TextColumn("Position"),
+    "Role": st.column_config.TextColumn(
+        "Role", help="Where he lined up most and his share of starting minutes there"),
     "Minutes": st.column_config.NumberColumn("Minutes", format="localized"),
     "Similarity": st.column_config.ProgressColumn(
         "Similarity", min_value=0.0, max_value=1.0, format="%.2f", color=theme.ACCENT, width=120,
         help="1.00 = an identical statistical profile"),
 }
-# Position is the same for every row (the pool is one position), so leave it
-# out to give the other columns room.
-COLUMN_ORDER = ["Player", "Club", "League", "Season", "Minutes", "Similarity"]
+# Position (the data provider's broad group) is left out to give the other
+# columns room; Role says where each match actually played.
+COLUMN_ORDER = ["Player", "Club", "League", "Season", "Role", "Minutes", "Similarity"]
 
 
 def _where(mode: str, family: str, season: str) -> str:
@@ -46,10 +48,18 @@ def _where(mode: str, family: str, season: str) -> str:
     return f"every {'US' if family == metrics.US else 'European'} league, {short}"
 
 
-def method_text(mode: str, family: str, group: str, season: str) -> str:
+def method_text(mode: str, family: str, group: str, season: str, role_aware: bool = False) -> str:
     """The method line for a fixed-template mode: the stats it uses and the pool."""
     template = similarity.mode_template(mode, family, group)
     names = ", ".join(metrics.label(k) for k in template)
+    if role_aware:
+        return (f"Method: style plus role. Every outfield player is compared on the same "
+                f"{len(template)} stats ({names}; season totals per 90, z-scored and capped so "
+                "no single stat decides a match) and on where he lined up: his share of starts "
+                "as a striker, attacking mid or winger, central mid, fullback or centre-back. "
+                "Players from a neighbouring role can still match, a step below. "
+                f"Pool: {_where(mode, family, season)}, {MIN_MINUTES}+ minutes; players missing "
+                "any of these stats are left out.")
     return (f"Method: cosine similarity on z-scored stats. Every player is compared on the same "
             f"{len(template)} stats: {names}. Season totals are compared per 90. "
             f"Pool: same position, {_where(mode, family, season)}, {MIN_MINUTES}+ minutes; "
@@ -69,10 +79,11 @@ def render(bq, pool: pd.DataFrame | None, row) -> None:
     family = metrics.family_of(row.get("Source"))
     big_five = metrics.is_big_five(row.get("Source"), row.get("League"))
     mode = _mode_control(similarity.modes_for(family, group, big_five))
+    role_aware = family != metrics.FBREF and group != "GK" and similarity.has_role_mix(row)
     if family == metrics.FBREF:
         st.caption(METHOD)
     else:
-        st.caption(method_text(mode, family, group, season))
+        st.caption(method_text(mode, family, group, season, role_aware))
     if mode == similarity.MODE_BIG_FIVE:
         st.caption(similarity.BIG_FIVE_NOTE)
     elif mode == similarity.MODE_TRIAL:
@@ -104,9 +115,11 @@ def render(bq, pool: pd.DataFrame | None, row) -> None:
         return
 
     compare_pool = pool
-    if mode == similarity.MODE_TRIAL:
+    if role_aware or mode == similarity.MODE_TRIAL:
+        # role-aware matches come from every outfield group: compare within that pool
+        key = similarity.OUTFIELD if role_aware else group
         try:
-            compare_pool = data.position_pool(bq, group, season, paired=True)
+            compare_pool = data.position_pool(bq, key, season, paired=mode == similarity.MODE_TRIAL)
         except Exception:  # noqa: BLE001 - the table still shows; the dumbbell says it can't
             compare_pool = None
 
@@ -134,12 +147,13 @@ def render(bq, pool: pd.DataFrame | None, row) -> None:
         st.caption(f"Select a row to compare that player with {player}.")
         return
     other = table.iloc[picked[0]]
-    _compare(compare_pool, row, other, group, mode)
+    _compare(compare_pool, row, other, group, mode, role_aware)
     st.button(f"View {other['Player']}'s profile", key="view_profile", type="primary",
               on_click=state.goto, args=(str(other["Player"]), str(other["Season"])))
 
 
-def _compare(pool: pd.DataFrame | None, row, other: pd.Series, group: str, mode: str) -> None:
+def _compare(pool: pd.DataFrame | None, row, other: pd.Series, group: str, mode: str,
+             role_aware: bool = False) -> None:
     a_name, b_name = str(row["Player"]), str(other["Player"])
     if pool is None or pool.empty:
         st.caption("Comparison unavailable: the position pool didn't load.")
@@ -155,7 +169,7 @@ def _compare(pool: pd.DataFrame | None, row, other: pd.Series, group: str, mode:
         b_rows = build.profile_rows(pool, b.iloc[0], group)
     else:
         # percentiles on the mode's stats, within the mode's pool
-        ranked = similarity.mode_pool(pool, a.iloc[0], mode)
+        ranked = similarity.mode_pool(pool, a.iloc[0], mode, same_group=not role_aware)
         layout = metrics.by_category(similarity.mode_template(mode, family, group), group)
         a_rows = build.profile_rows(ranked, a.iloc[0], group, layout=layout)
         b_rows = build.profile_rows(ranked, b.iloc[0], group, layout=layout)
