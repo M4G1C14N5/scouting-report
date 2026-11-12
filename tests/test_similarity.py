@@ -691,3 +691,21 @@ def test_newer_outfielder_compares_across_positions_and_falls_back_without_roles
 def test_outfield_pool_sql_covers_every_outfield_group():
     sql = " ".join(similarity.pool_sql(similarity.OUTFIELD, "2025-2026").split())
     assert "position_group IN ('ATT', 'MID', 'DEF')" in sql
+
+
+def test_one_extreme_stat_is_capped_so_it_cannot_decide_the_match(monkeypatch):
+    # The Olise/Yamal case: Q and A are both well above the pool on every stat, each
+    # with a different freak stat (Q on e, A on a); B is moderate and shaped like Q.
+    rng = np.random.default_rng(9)
+    cols = ["a", "b", "c", "d", "e"]
+    rows = [{"Player": "Q", **dict(zip(cols, [3.0, 3.0, 3.0, 3.0, 12.0])), **_roles(amw=1.0)},
+            {"Player": "A", **dict(zip(cols, [12.0, 3.0, 3.0, 3.0, 3.0])), **_roles(amw=1.0)},
+            {"Player": "B", **dict(zip(cols, [0.5, 0.5, 0.5, 0.5, 2.5])), **_roles(amw=1.0)}]
+    rows += [{"Player": f"F{i}", **{c: float(rng.normal(0, 1)) for c in cols}, **_roles(amw=1.0)}
+             for i in range(300)]
+    pool = _pool(rows, season="2025-2026")
+    capped = similarity.rank_role_aware(pool, "Q", "2025-2026", cols, 3)
+    assert capped.iloc[0]["Player"] == "A"
+    monkeypatch.setattr(similarity, "Z_CAP", float("inf"))
+    uncapped = similarity.rank_role_aware(pool, "Q", "2025-2026", cols, 3)
+    assert uncapped.iloc[0]["Player"] == "B"  # the freak stats pull the two apart

@@ -211,8 +211,14 @@ OUTFIELD = "OUT"
 OUTFIELD_GROUPS = ("ATT", "MID", "DEF")
 # Weight of the role-mix block against the z-scored style block. Each role share
 # is centred on the pool mean and multiplied by this; the style stats have unit
-# variance each. Set from the sanity set (see rank_role_aware).
+# variance each. Set on a 2025/26 sanity set: at 0-1 a fullback (Grimaldo) still
+# reached Foden's top 5; at 3 hybrids lost their wide matches; 2 kept strikers,
+# holding mids and centre-backs in role while hybrids matched hybrids.
 ROLE_WEIGHT = 2.0
+# Style z-scores are capped at +/- this, so one freak stat cannot decide a match on
+# its own: uncapped, Yamal's dribbling (+7 SD) and Olise's assists (+6 SD) pointed
+# their vectors apart and Yamal ranked 17th for Olise; capped at 3 he is first.
+Z_CAP = 3.0
 
 
 class IncompleteDataError(ValueError):
@@ -509,7 +515,7 @@ def rank_role_aware(
     complete = pool_reset[template + roles].notna().all(axis=1)
     scored = pool_reset[(complete & ~query_mask) | query_mask].reset_index(drop=True).copy()
     scored_query = (scored["Player"] == player) & (scored["Season"] == season)
-    style = _zscore_matrix(scored, template)
+    style = np.clip(_zscore_matrix(scored, template), -Z_CAP, Z_CAP)
     shares = scored[roles].astype(float).fillna(0.0)
     role_block = (shares - shares.mean()).values * weight
     X = np.hstack([style, role_block])
