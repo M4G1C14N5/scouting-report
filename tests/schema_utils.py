@@ -15,6 +15,8 @@ SCHEMA = Path(__file__).resolve().parents[1] / "schema.sql"
 IDENTITY_COLUMNS = frozenset(
     {"Player", "Nation", "Position", "Squad", "League", "Age", "Born", "Season", "position_group"}
 )
+# Non-stat columns of the newer sources (null for FBref): not metrics either.
+TEXT_COLUMNS = frozenset({"photo_url"})
 
 
 @lru_cache(maxsize=None)
@@ -57,7 +59,7 @@ def feature_columns(table: str) -> list[str]:
 
 
 def numeric_columns(table: str) -> list[str]:
-    return [c for c in feature_columns(table) if c not in IDENTITY_COLUMNS]
+    return [c for c in feature_columns(table) if c not in IDENTITY_COLUMNS | TEXT_COLUMNS]
 
 
 @lru_cache(maxsize=None)

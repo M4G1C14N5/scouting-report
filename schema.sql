@@ -312,7 +312,9 @@ SELECT
     -- Discipline (API-Football)
     CAST(NULL AS INT64)   AS fouls_committed,
     CAST(NULL AS INT64)   AS penalties_conceded,
-    CAST(NULL AS INT64)   AS offsides
+    CAST(NULL AS INT64)   AS offsides,
+    -- Player photo URL (API-Football)
+    CAST(NULL AS STRING)  AS photo_url
 
 FROM `scouting.standard` s
 LEFT JOIN `scouting.shooting`  sh ON s.Player = sh.Player AND s.Season = sh.Season
@@ -357,7 +359,9 @@ SELECT
     -- Newer sources only (API-Football), null for FBref seasons
     CAST(NULL AS INT64)   AS appearances,
     CAST(NULL AS INT64)   AS starts,
-    CAST(NULL AS FLOAT64) AS match_rating
+    CAST(NULL AS FLOAT64) AS match_rating,
+    -- Player photo URL (API-Football)
+    CAST(NULL AS STRING)  AS photo_url
 
 FROM `scouting.standard` s
 INNER JOIN `scouting.goalkeeping` g ON s.Player = g.Player AND s.Season = g.Season

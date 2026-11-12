@@ -53,7 +53,7 @@ The app reads two BigQuery views, `outfield_all` and `goalkeeper_all`. Each one 
 | 2024-25, 2025-26 | Championship, League One, League Two, Primeira Liga, Eredivisie, Belgian Pro League, Austrian Bundesliga, Swiss Super League, Danish Superliga, Scottish Premiership | API-Football (season totals; for some leagues, totals built from match data) |
 | 2024, 2025, 2026 | MLS, USL Championship, USL League One, MLS NEXT Pro | American Soccer Analysis |
 
-European seasons are labelled `2025-2026` (shown as 2025-26) and US calendar seasons `2026`. The FBref part holds 16,532 player-seasons with 90+ minutes (15,184 outfield + 1,348 goalkeeper); 13,773 have 450+ minutes, the cut-off used for percentiles and similarity.
+European seasons are labelled `2025-2026` (shown as 2025/26) and US calendar seasons `2026` (shown as 2026 (US) in lists that mix both). Player photos come from API-Football: every European player-season has one, US players get one when exactly one API-Football player shares their birth date and name or surname (about three in four), and FBref seasons borrow the player's newer-season photo. Flags are flagcdn.com images keyed by the Nation code. The FBref part holds 16,532 player-seasons with 90+ minutes (15,184 outfield + 1,348 goalkeeper); 13,773 have 450+ minutes, the cut-off used for percentiles and similarity.
 
 **What the newer sources add.** Metrics FBref never had, empty for 2017-18 to 2023-24:
 

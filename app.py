@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from src.ui import data, theme
+from src.ui import data, stats, theme
 from src.ui.views import header, picker, profile, similar, stats_tab
 
 st.set_page_config(page_title="Scouting Hub", page_icon="⚽", layout="wide")
@@ -31,6 +31,19 @@ FOOTER_PARTS = (
     ("Pipeline", "FBref → GCS → BigQuery; API-Football, Understat and ASA → soccer-data → BigQuery"),
     ("Built by", "Thomas Tsangou and Ajaiah Darlington"),
 )
+
+
+def _photo(bq, row) -> str | None:
+    """The row's photo, else a newer season's (FBref seasons have none). A
+    failed lookup just means initials, never an error on the page."""
+    own = header.photo_of(row)
+    if own is not None:
+        return own
+    born = stats.to_float(row.get("Born"))
+    try:
+        return data.player_photo(bq, str(row["Player"]), born)
+    except Exception:  # noqa: BLE001 - a photo is decoration
+        return None
 
 
 def main() -> None:
@@ -62,7 +75,7 @@ def main() -> None:
         theme.error_box(st, f"Couldn't load stats for {player} ({season}).", exc)
         return
     group = row["position_group"]
-    header.render(row)
+    header.render(row, photo_url=_photo(bq, row))
 
     pool, pool_error = None, None
     try:

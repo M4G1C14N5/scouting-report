@@ -59,6 +59,28 @@ def player_stats(_bq, player: str, season: str) -> pd.Series:
     return get_player_stats(player, season, _bq)
 
 
+@st.cache_data(ttl=TTL, show_spinner=False)
+def player_photo(_bq, player: str, born: float | None) -> str | None:
+    """The newest photo for this player name (and birth year, when known) in
+    any season: FBref seasons have no photo of their own and borrow the one
+    from the player's newer seasons."""
+    sql = f"""
+        SELECT photo_url, Season FROM {table_ref(OUTFIELD_TABLE)}
+        WHERE Player = @player AND photo_url IS NOT NULL AND (@born IS NULL OR Born = @born)
+        UNION ALL
+        SELECT photo_url, Season FROM {table_ref(GOALKEEPER_TABLE)}
+        WHERE Player = @player AND photo_url IS NOT NULL AND (@born IS NULL OR Born = @born)
+        ORDER BY Season DESC
+        LIMIT 1
+    """
+    config = bigquery.QueryJobConfig(query_parameters=[
+        bigquery.ScalarQueryParameter("player", "STRING", player),
+        bigquery.ScalarQueryParameter("born", "FLOAT64", born),
+    ])
+    rows = _bq.query(sql, job_config=config).to_dataframe(create_bqstorage_client=False)
+    return None if rows.empty else str(rows.iloc[0]["photo_url"])
+
+
 @st.cache_data(ttl=TTL, show_spinner="Loading the position pool…")
 def position_pool(_bq, position_group: str, season: str, paired: bool = False) -> pd.DataFrame:
     """Everyone in the group and season with MIN_MINUTES+ minutes, fetched once and

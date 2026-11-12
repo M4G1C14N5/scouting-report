@@ -712,3 +712,14 @@ def test_similar_trial_compare_view_reaches_the_paired_season(real_similarity):
     traces = json.loads(at.get("plotly_chart")[0].proto.spec)["data"]
     markers = [t for t in traces if t.get("mode") == "markers"]
     assert len(markers[0]["x"]) == 7  # the seven shared stats
+
+
+def test_header_nation_chip_has_a_flag():
+    from src.ui.views import header
+
+    row = {"Player": "Bukayo Saka", "position_group": "ATT", "Squad": "Arsenal", "League": "Premier League",
+           "Season": "2025-2026", "Nation": "ENG", "Source": "API-Football + Understat"}
+    chips = "".join(header.chips_for(row))
+    assert 'src="https://flagcdn.com/w40/gb-eng.png"' in chips and ">ENG</span>" in chips
+    assert header.photo_of({"photo_url": " "}) is None and header.photo_of({"photo_url": None}) is None
+    assert header.photo_of({"photo_url": "https://x/1.png"}) == "https://x/1.png"

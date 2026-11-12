@@ -6,20 +6,20 @@ from tests.schema_utils import (IDENTITY_COLUMNS, feature_columns, newer_source_
 
 def test_outfield_columns_are_parsed_in_order():
     cols = feature_columns("outfield_features")
-    assert len(cols) == 100
+    assert len(cols) == 101
     assert cols[:9] == ["Player", "Nation", "Position", "Squad", "League", "Age", "Born",
                         "Season", "position_group"]
     assert "pass_progressive_passes" in cols  # an `AS` alias
     assert cols[67] == "errors_leading_to_shot"  # the last FBref column
-    assert cols[-1] == "offsides"
+    assert cols[-2:] == ["offsides", "photo_url"]
 
 
 def test_goalkeeper_columns_are_parsed_in_order():
     cols = feature_columns("goalkeeper_features")
-    assert len(cols) == 28
+    assert len(cols) == 29
     assert "position_group" in cols  # 'GK' AS position_group
     assert cols[24] == "pk_save_pct"
-    assert cols[-3:] == ["appearances", "starts", "match_rating"]
+    assert cols[-4:] == ["appearances", "starts", "match_rating", "photo_url"]
 
 
 def test_numeric_columns_drop_identity():
@@ -33,8 +33,8 @@ def test_numeric_columns_drop_identity():
 
 def test_newer_source_columns_are_the_null_casts_with_their_types():
     out = newer_source_columns("outfield_features")
-    assert len(out) == 32
+    assert len(out) == 33 and out["photo_url"] == "STRING"
     assert out["duels_total"] == "INT64" and out["match_rating"] == "FLOAT64"
     assert list(out) == feature_columns("outfield_features")[68:]
     assert newer_source_columns("goalkeeper_features") == {
-        "appearances": "INT64", "starts": "INT64", "match_rating": "FLOAT64"}
+        "appearances": "INT64", "starts": "INT64", "match_rating": "FLOAT64", "photo_url": "STRING"}

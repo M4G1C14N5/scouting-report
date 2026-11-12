@@ -20,7 +20,7 @@ import html
 import os
 from typing import Iterable, Sequence
 
-from src.ui import stats
+from src.ui import flags, stats
 
 PAGE = "#0e1012"        # app background, neutral charcoal
 SURFACE = "#16191c"     # cards, chart surface, sidebar
@@ -101,6 +101,15 @@ CSS = f"""
 .fl-chip {{ display: inline-block; padding: 2px 10px; border-radius: {RADIUS}; background: {SURFACE_2};
             border: 1px solid {BORDER}; color: {INK_2}; font-size: .75rem; font-weight: 600;
             letter-spacing: .02em; }}
+.fl-avatar img {{ position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+                  object-position: center top; border: 0; background: {SURFACE_2}; color: transparent; font-size: 0; }}
+/* only a photo that failed to load renders ::before: it shows the initials instead */
+.fl-avatar img::before {{ content: attr(data-initials); position: absolute; inset: 0; display: flex;
+                          align-items: center; justify-content: center; background: #1b2a22; color: {INK};
+                          font-family: {FONT_DISPLAY}; font-weight: 700; font-size: 26px; }}
+.fl-chip-nation {{ display: inline-flex; align-items: center; gap: .4rem; }}
+.fl-flag {{ width: 18px; height: 13px; object-fit: cover; border-radius: 1px;
+            box-shadow: 0 0 0 1px rgba(238,240,242,0.18); }}
 /* the position chip (chip(..., accent=True)) */
 .fl-chip-accent {{ color: {ACCENT}; border-color: rgba({ACCENT_RGB},0.55); background: rgba({ACCENT_RGB},0.10); }}
 .fl-kpi-row {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: .6rem;
@@ -243,15 +252,30 @@ def chip(text: str, accent: bool = False) -> str:
     return f'<span class="{cls}">{esc(text)}</span>'
 
 
-def avatar_html(name: str, size: int = 72) -> str:
-    """Initials disc (no headshots in this dataset)."""
+def avatar_html(name: str, size: int = 72, photo_url: str | None = None) -> str:
+    """Initials disc, with the player's photo on top when there is one. A photo
+    that fails to load draws the initials in its placeholder (.fl-avatar
+    img::before), so a dead link never shows a broken-image icon."""
+    initials = esc(stats.initials(name))
+    photo = ""
+    if photo_url and str(photo_url).startswith("https://"):
+        photo = (f'<img src="{esc(photo_url)}" alt="" data-initials="{initials}" loading="lazy" '
+                 'referrerpolicy="no-referrer">')
     return (f'<span class="fl-avatar" style="width:{size}px;height:{size}px;'
-            f'font-size:{size * 0.36:.0f}px">{esc(stats.initials(name))}</span>')
+            f'font-size:{size * 0.36:.0f}px">{initials}{photo}</span>')
 
 
-def identity_html(name: str, chips: Sequence[str]) -> str:
+def flag_chip(nation: str) -> str:
+    """The Nation chip: the code, with its flag in front when there is one."""
+    url = flags.flag_url(nation)
+    flag = (f'<img class="fl-flag" src="{esc(url)}" alt="" loading="lazy" referrerpolicy="no-referrer">'
+            if url else "")
+    return f'<span class="fl-chip fl-chip-nation">{flag}{esc(nation)}</span>'
+
+
+def identity_html(name: str, chips: Sequence[str], photo_url: str | None = None) -> str:
     """Avatar, name and chips. `chips` are chip() HTML strings (already escaped)."""
-    return (f'<div class="fl-card"><div class="fl-identity">{avatar_html(name)}'
+    return (f'<div class="fl-card"><div class="fl-identity">{avatar_html(name, photo_url=photo_url)}'
             f'<div><div class="fl-name">{esc(name)}</div>'
             f'<div class="fl-chips">{"".join(chips)}</div></div></div></div>')
 

@@ -27,6 +27,10 @@ def stub_data(monkeypatch):
     monkeypatch.setattr(data, "similar_players",
                         lambda _bq, player, season, group, mode=None: fakes.similar_players(
                             player, season, group))
+    photos = []
+    monkeypatch.setattr(data, "player_photo",
+                        lambda _bq, player, born: photos.append((player, born)) or "https://img/newer.png")
+    return photos
 
 
 def _app() -> AppTest:
@@ -214,3 +218,18 @@ def test_no_deprecated_use_container_width():
     files = [ROOT / "app.py", *(ROOT / "src" / "ui").rglob("*.py")]
     offenders = [str(f) for f in files if "use_container_width" in f.read_text(encoding="utf-8")]
     assert not offenders
+
+
+def test_fbref_season_borrows_the_newer_seasons_photo(stub_data):
+    at = _select(_app(), "Mohamed Salah")
+    assert 'src="https://img/newer.png"' in _markdown(at)
+    assert stub_data and stub_data[0][0] == "Mohamed Salah"
+
+
+def test_photo_lookup_failure_falls_back_to_initials(stub_data, monkeypatch):
+    def boom(*_args):
+        raise RuntimeError("no BigQuery")
+    monkeypatch.setattr(data, "player_photo", boom)
+    at = _select(_app(), "Mohamed Salah")
+    md = _markdown(at)
+    assert ">MS</span>" in md and "<img src" not in md and not at.error

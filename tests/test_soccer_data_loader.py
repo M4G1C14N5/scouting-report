@@ -188,10 +188,16 @@ def _make_warehouse(path: Path, rows: list[dict]) -> None:
                 "(1250, 'Mohamed Salah', 'EPL', 2025), (1250, 'Mo Salah', 'EPL', 2024), "
                 "(1250, 'Wrong League', 'La_liga', 2025)")
     con.execute("CREATE TABLE stg_apif__players (player_id BIGINT, player_name VARCHAR, "
-                "first_name VARCHAR, last_name VARCHAR)")
-    con.execute("INSERT INTO stg_apif__players VALUES (306, 'M. Salah', 'Mohamed', 'Salah'), "
-                "(1100, 'E. Haaland', 'Erling Braut', 'Haaland'), "
-                "(900, 'M. Dmitrović', 'Marko', 'Dmitrović')")
+                "first_name VARCHAR, last_name VARCHAR, birth_date DATE, nationality VARCHAR, "
+                "photo_url VARCHAR)")
+    con.execute("INSERT INTO stg_apif__players VALUES "
+                "(306, 'M. Salah', 'Mohamed', 'Salah', '1992-06-15', 'Egypt', 'https://img/306.png'), "
+                "(1100, 'E. Haaland', 'Erling Braut', 'Haaland', '2000-07-21', 'Norway', "
+                "'https://img/1100.png'), "
+                "(900, 'M. Dmitrović', 'Marko', 'Dmitrović', NULL, 'Serbia', 'https://img/900.png'), "
+                "(501, 'C. Striker', 'Carlos', 'Striker', '1999-04-02', 'USA', 'https://img/501.png'), "
+                "(601, 'J. Twin', 'John', 'Twin', '1998-01-01', 'USA', 'https://img/601.png'), "
+                "(602, 'J. Twin', 'Jack', 'Twin', '1998-01-01', 'USA', 'https://img/602.png')")
     con.close()
 
 
@@ -365,7 +371,45 @@ ASA_ONLY = {"goals_added", "goals_added_above_avg", "ga_dribbling", "ga_passing"
 
 
 def test_every_newer_source_column_is_mapped():
-    assert NEWER_MAPPED == set(newer_source_columns("outfield_features"))
+    assert NEWER_MAPPED | {"photo_url"} == set(newer_source_columns("outfield_features"))
+    assert loader.bq_type("photo_url") == "STRING"
+
+
+def test_read_players_attaches_photos_and_profile_nationality(tmp_path):
+    path = tmp_path / "warehouse.duckdb"
+    rows = [
+        _row(source="apif", source_player_id="306", league_id=39, season=2025,
+             league_code="ENG1", season_label="2025-2026", player_name="M. Salah",
+             position_group="ATT", minutes=2500),
+        # match-data row: no nationality in the mart, the profile has one
+        _row(source="apif_matches", source_player_id="1100", league_code="ENG4",
+             season_label="2025-2026", player_name="E. Haaland", position_group="ATT", minutes=900),
+        # ASA: one API-Football player shares birth date and surname -> his photo
+        _row(source="asa", source_player_id="asa-1", league_code="USL1", season_label="2026",
+             player_name="Carl Striker", birth_date=_born("1999-04-02"), position_group="ATT",
+             minutes=1200),
+        # ASA: two API-Football players share birth date and surname -> no photo
+        _row(source="asa", source_player_id="asa-2", league_code="USL1", season_label="2026",
+             player_name="Joe Twin", birth_date=_born("1998-01-01"), position_group="MID",
+             minutes=1200),
+        # ASA: same surname, other birth date -> no photo
+        _row(source="asa", source_player_id="asa-3", league_code="USL1", season_label="2026",
+             player_name="Ann Striker", birth_date=_born("1990-01-01"), position_group="DEF",
+             minutes=1200),
+    ]
+    _make_warehouse(path, rows)
+    got = loader.read_players(path).set_index("player_name")
+    assert got.loc["M. Salah", "photo_url"] == "https://img/306.png"
+    assert got.loc["E. Haaland", "profile_nationality"] == "Norway"
+    assert got.loc["Carl Striker", "photo_url"] == "https://img/501.png"
+    assert pd.isna(got.loc["Joe Twin", "photo_url"]) and pd.isna(got.loc["Ann Striker", "photo_url"])
+    assert pd.isna(got.loc["Carl Striker", "profile_nationality"])  # ASA rows keep their own
+
+    outfield, _ = loader.build_frames(got.reset_index())
+    haaland = outfield[outfield["Player"].str.contains("Haaland")].iloc[0]
+    assert haaland["Nation"] == "NOR"
+    assert set(outfield["photo_url"].dropna()) == {"https://img/306.png", "https://img/1100.png",
+                                                   "https://img/501.png"}
 
 
 def test_api_football_and_understat_newer_metrics(frames):

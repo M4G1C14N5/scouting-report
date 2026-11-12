@@ -109,7 +109,7 @@ NATION_CODES: dict[str, str] = {
     "India": "IND", "Indonesia": "IDN", "Iran": "IRN", "Iraq": "IRQ", "Ireland": "IRL",
     "Republic of Ireland": "IRL", "Israel": "ISR", "Italy": "ITA", "Jamaica": "JAM",
     "Japan": "JPN", "Jordan": "JOR", "Kazakhstan": "KAZ", "Kenya": "KEN",
-    "Korea DPR": "PRK", "Korea Republic": "KOR", "South Korea": "KOR", "Kosovo": "KVX",
+    "Korea DPR": "PRK", "Korea Republic": "KOR", "South Korea": "KOR", "Kosovo": "KVX", "Lebanon": "LBN",
     "Laos": "LAO", "Latvia": "LVA", "Lesotho": "LES", "Liberia": "LBR", "Libya": "LBY",
     "Liechtenstein": "LIE", "Lithuania": "LTU", "Luxembourg": "LUX", "Macedonia": "MKD",
     "North Macedonia": "MKD", "Madagascar": "MAD", "Malawi": "MWI", "Malaysia": "MAS",
@@ -123,7 +123,7 @@ NATION_CODES: dict[str, str] = {
     "Puerto Rico": "PUR", "Qatar": "QAT", "Romania": "ROU", "Russia": "RUS",
     "Rwanda": "RWA", "Saudi Arabia": "KSA", "Scotland": "SCO", "Senegal": "SEN",
     "Serbia": "SRB", "Seychelles": "SEY", "Sierra Leone": "SLE", "Slovakia": "SVK",
-    "Slovenia": "SVN", "Somalia": "SOM", "South Africa": "RSA", "South Sudan": "SSD",
+    "Slovenia": "SVN", "Somalia": "SOM", "Sri Lanka": "SRI", "South Africa": "RSA", "South Sudan": "SSD",
     "Spain": "ESP", "St. Kitts and Nevis": "SKN", "St. Lucia": "LCA",
     "St. Vincent and the Grenadines": "VIN", "Suriname": "SUR", "Sweden": "SWE",
     "Switzerland": "SUI", "Syria": "SYR", "São Tomé e Príncipe": "STP", "Tanzania": "TAN",
@@ -135,7 +135,7 @@ NATION_CODES: dict[str, str] = {
     "Zimbabwe": "ZIM",
 }
 # Names kept as they are: no FIFA trigram, and none in the FBref data to copy.
-NATION_FALLBACK = frozenset({"Bonaire"})
+NATION_FALLBACK = frozenset({"Bonaire", "Great Britain"})
 
 IDENTITY_COLUMNS = frozenset(
     {"Player", "Nation", "Position", "Squad", "League", "Age", "Born", "Season", "position_group"}
@@ -169,7 +169,7 @@ OUTFIELD_COLUMNS = [
     "penalties_won", "share_team_touches_pct", "dribbled_past", "duels_total", "duels_won",
     "duels_won_pct", "goals_added", "goals_added_above_avg", "ga_shooting", "ga_passing",
     "ga_receiving", "ga_dribbling", "ga_interrupting", "ga_fouling", "fouls_committed",
-    "penalties_conceded", "offsides",
+    "penalties_conceded", "offsides", "photo_url",
 ]
 GOALKEEPER_COLUMNS = [
     "Player", "Nation", "Position", "Squad", "League", "Age", "Born", "Season",
@@ -178,7 +178,7 @@ GOALKEEPER_COLUMNS = [
     "clean_sheets", "clean_sheet_pct", "penalty_kicks_faced", "penalty_kicks_allowed",
     "penalty_kicks_saved", "pk_save_pct",
     # newer sources only (null for FBref)
-    "appearances", "starts", "match_rating",
+    "appearances", "starts", "match_rating", "photo_url",
 ]
 
 _MART_NUMBERS = ("minutes", "goals", "assists", "penalties_scored", "shots", "shots_on_target",
@@ -219,6 +219,25 @@ def warehouse_path() -> Path:
     return Path.home() / "soccer-data" / "warehouse.duckdb"
 
 
+# ASA players have no photo. One is borrowed from API-Football when exactly one
+# API-Football player shares the birth date and the full name or the surname
+# (accents and case folded). About three US players in four get one.
+ASA_PHOTO_SQL = (
+    "SELECT a.source_player_id, max(pr.photo_url) AS photo_url"
+    " FROM (SELECT DISTINCT source_player_id, lower(strip_accents(player_name)) AS nm,"
+    "        CAST(birth_date AS DATE) AS bd"
+    "       FROM player_season_stats WHERE source = 'asa' AND birth_date IS NOT NULL) a"
+    " JOIN (SELECT player_id, photo_url, CAST(birth_date AS DATE) AS bd,"
+    "        lower(strip_accents(player_name)) AS nm,"
+    "        lower(strip_accents(coalesce(first_name, '') || ' ' || coalesce(last_name, ''))) AS full_nm"
+    "       FROM stg_apif__players WHERE photo_url IS NOT NULL AND birth_date IS NOT NULL) pr"
+    "   ON pr.bd = a.bd AND (a.nm IN (pr.nm, pr.full_nm)"
+    "        OR split_part(a.nm, ' ', -1) = split_part(pr.full_nm, ' ', -1))"
+    " GROUP BY a.source_player_id"
+    " HAVING count(DISTINCT pr.player_id) = 1"
+)
+
+
 def read_players(path: Path | str) -> pd.DataFrame:
     """Rows of player_season_stats in LEAGUES and SEASONS with at least 90 minutes.
 
@@ -236,7 +255,9 @@ def read_players(path: Path | str) -> pd.DataFrame:
     params = [*leagues, *seasons, MIN_MINUTES]
     apif = "p.source IN ('apif', 'apif_matches')"
     sql = (
-        "SELECT p.*, us.player_name AS understat_name, pr.first_name AS profile_first_name"
+        "SELECT p.*, us.player_name AS understat_name, pr.first_name AS profile_first_name,"
+        " pr.nationality AS profile_nationality,"
+        " COALESCE(pr.photo_url, ap.photo_url) AS photo_url"
         " FROM player_season_stats p"
         " LEFT JOIN league_info li ON li.apif_league_id = p.league_id"
         f" LEFT JOIN int_understat__apif_match m ON {apif}"
@@ -247,6 +268,8 @@ def read_players(path: Path | str) -> pd.DataFrame:
         "   AND us.season = m.season AND us.league = li.understat_league"
         f" LEFT JOIN stg_apif__players pr ON {apif}"
         "   AND pr.player_id = TRY_CAST(p.source_player_id AS BIGINT)"
+        f" LEFT JOIN ({ASA_PHOTO_SQL}) ap ON p.source = 'asa'"
+        "   AND ap.source_player_id = p.source_player_id"
         + where +
         " ORDER BY p.league_code, p.season_label, p.player_name, p.team"
     )
@@ -308,6 +331,7 @@ def _identity(p: pd.DataFrame) -> dict[str, pd.Series]:
         "position_group": p["position_group"].astype(object),
         "minutes": minutes,
         "nineties_played": minutes / 90,
+        "photo_url": text("photo_url") if "photo_url" in p else pd.Series(None, index=p.index, dtype=object),
     }
 
 
@@ -590,6 +614,10 @@ def build_frames(players: pd.DataFrame,
         p[col] = pd.to_numeric(pd.Series(values, index=p.index), errors="coerce").astype(float)
     p["season_label"] = p["season_label"].astype(str)
     _clean_api_football_names(p, report)
+    if "profile_nationality" in p:
+        # match-data rows (League One/Two) carry no nationality: take the profile's
+        report["nations_from_profile"] = int((p["nationality"].isna() & p["profile_nationality"].notna()).sum())
+        p["nationality"] = p["nationality"].where(p["nationality"].notna(), p["profile_nationality"])
     _apply_nation_codes(p, report)
 
     null_position = p["position_group"].isna()
@@ -631,9 +659,16 @@ def _sql_type(field_type: str) -> str:
     return _SQL_TYPES.get(field_type.upper(), field_type.upper())
 
 
+# Non-metric columns the FBref tables lack, with their BigQuery types.
+TEXT_COLUMNS = {"photo_url": "STRING"}
+
+
 def bq_type(column: str) -> str:
-    """BigQuery type of a Hub metric column the FBref tables lack: INT64 for
-    whole-number kinds (count, tally, minutes), FLOAT64 otherwise."""
+    """BigQuery type of a Hub column the FBref tables lack: TEXT_COLUMNS as
+    listed; metrics INT64 for whole-number kinds (count, tally, minutes),
+    FLOAT64 otherwise."""
+    if column in TEXT_COLUMNS:
+        return TEXT_COLUMNS[column]
     kind = KIND.get(column)
     if kind is None:
         raise ValueError(f"{column} is not a metric column: the FBref table must have it")
