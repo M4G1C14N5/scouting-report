@@ -70,7 +70,8 @@ def test_no_selection_shows_hero_onboarding_and_footer(stub_data):
     assert "19 leagues" in md.split('class="fl-brand-sub">', 1)[1].split("<", 1)[0]
     assert "—" not in md and "–" not in md  # no em or en dashes in the page copy
     assert not at.tabs
-    assert "Showing 11 players" in " ".join(c.value for c in at.sidebar.caption)
+    assert "11 players in 2023/24. The search covers every season." in " ".join(
+        c.value for c in at.sidebar.caption)
     assert at.selectbox(key="player_pick").value is None  # nobody auto-selected
     assert at.selectbox(key="f_season").value == fakes.LATEST  # sidebar defaults to the latest season
 
@@ -155,13 +156,23 @@ def test_low_minutes_player_gets_empty_states(stub_data):
     assert "below the 450-minute threshold" in md
 
 
-def test_filters_with_no_players_show_an_empty_state(stub_data):
+def test_a_season_without_the_league_still_searches_its_other_seasons(stub_data):
     at = _app()
     at.selectbox(key="f_season").set_value(fakes.PREVIOUS).run()
     at.selectbox(key="f_league").set_value("Bundesliga").run()
     assert not at.exception
-    assert "No players match these filters" in _markdown(at)
+    assert "No players match these filters" not in _markdown(at)
+    assert "0 players in 2022/23" in " ".join(c.value for c in at.sidebar.caption)
+    assert any(o.startswith("Gregor Kobel") for o in at.selectbox(key="player_pick").options)
     assert "Thomas Tsangou" in _markdown(at)
+
+
+def test_search_lists_players_from_other_seasons_and_opens_their_best_season(stub_data):
+    at = _app()
+    at.selectbox(key="f_season").set_value(fakes.PREVIOUS).run()  # Kobel only has 2023/24
+    at = _select(at, "Gregor Kobel")
+    md = _markdown(at)
+    assert "Gregor Kobel" in md and ">2023/24<" in md and not at.error  # opened in his season
 
 
 def test_club_resets_when_league_changes(stub_data):
@@ -190,7 +201,7 @@ def test_season_switch_recovers_when_season_filter_narrows(stub_data):
     at.selectbox(key="f_season").set_value(fakes.LATEST).run()
     assert not at.exception
     assert at.session_state["player_pick"] == "Mohamed Salah"
-    assert at.session_state["season_switch"] == fakes.LATEST  # fell back from the filtered-out season
+    assert at.session_state["season_switch"] == fakes.LATEST  # follows the new sidebar season
     assert "Ranked against 2 forwards in Premier League 2023/24 with 450+ minutes" in _captions(at)  # only 2023/24 is in view
 
 

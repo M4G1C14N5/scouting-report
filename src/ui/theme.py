@@ -63,6 +63,10 @@ CSS = f"""
 .stApp {{ background: radial-gradient(1100px 520px at 12% -12%, rgba({ACCENT_RGB},0.10), transparent 60%),
                       radial-gradient(900px 420px at 100% -8%, rgba({ACCENT_2_RGB},0.08), transparent 60%), {PAGE}; }}
 
+/* ---- main column: Streamlit pads 6rem above the first block; 3rem clears its
+   top toolbar and lifts the title ---- */
+.stApp .block-container {{ padding-top: 3rem; }}
+
 /* ---- hero ---- */
 .fl-hero {{
   position: relative; overflow: hidden;

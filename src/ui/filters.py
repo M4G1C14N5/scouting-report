@@ -67,8 +67,40 @@ def search_options(filtered: pd.DataFrame) -> pd.DataFrame:
     return latest.sort_values("Player", key=lambda s: s.str.casefold()).reset_index(drop=True)
 
 
+# Letters the search box's accent folding does not reduce to plain letters (it
+# turns "é" into "e" but leaves "Ø" alone, so "odegaard" never found Ødegaard).
+_PLAIN = str.maketrans({"ø": "o", "Ø": "O", "ł": "l", "Ł": "L", "ß": "ss", "æ": "ae",
+                        "Æ": "Ae", "œ": "oe", "Œ": "Oe", "đ": "d", "Đ": "D", "ı": "i",
+                        "þ": "th", "Þ": "Th", "ð": "d", "Ð": "D"})
+
+
+def plain_alias(player: str) -> str:
+    """The words of `player` that need a plain-letter spelling to be searchable
+    ("Martin Ødegaard" -> "Odegaard"); "" when every word already is."""
+    words = [w.translate(_PLAIN) for w in str(player).split() if w.translate(_PLAIN) != w]
+    return " ".join(words)
+
+
 def option_label(player: str, club: str, league: str) -> str:
-    return f"{player} — {club}, {league}"
+    alias = plain_alias(player)
+    name = f"{player} ({alias})" if alias else player
+    return f"{name} — {club}, {league}"
+
+
+def preferred_season(seasons_minutes: dict[str, float], preferred: str | None,
+                     min_minutes: float) -> str | None:
+    """The season to open a player in: `preferred` (the sidebar's season) when he
+    has min_minutes there, else his most recent season with min_minutes, else his
+    most recent season. `seasons_minutes`: {season: minutes}."""
+    if not seasons_minutes:
+        return None
+    if preferred in seasons_minutes and seasons_minutes[preferred] >= min_minutes:
+        return preferred
+    newest_first = sorted(seasons_minutes, key=season_sort_key, reverse=True)
+    for season in newest_first:
+        if seasons_minutes[season] >= min_minutes:
+            return season
+    return newest_first[0]
 
 
 def player_seasons(filtered: pd.DataFrame, player: str) -> list[str]:

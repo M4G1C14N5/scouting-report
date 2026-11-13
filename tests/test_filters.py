@@ -99,3 +99,20 @@ def test_default_season_is_the_newest_european_season():
 def test_default_season_falls_back_to_the_newest_season():
     assert filters.default_season(["2026", "2025", "2024"]) == "2026"
     assert filters.default_season([]) is None
+
+
+def test_plain_alias_makes_letters_without_an_accent_fold_searchable():
+    assert filters.plain_alias("Martin Ødegaard") == "Odegaard"
+    assert filters.plain_alias("Kylian Mbappé") == ""  # the search box folds é itself
+    assert filters.plain_alias("Jan Bednarek Łukasz Ąb") == "Lukasz"
+    assert filters.option_label("Martin Ødegaard", "Arsenal", "Premier League") ==         "Martin Ødegaard (Odegaard) — Arsenal, Premier League"
+    assert filters.option_label("Bukayo Saka", "Arsenal", "Premier League") ==         "Bukayo Saka — Arsenal, Premier League"
+
+
+def test_preferred_season_falls_back_to_the_latest_season_with_enough_minutes():
+    minutes = {"2025-2026": 300.0, "2024-2025": 2400.0, "2023-2024": 3000.0, "2026": 100.0}
+    assert filters.preferred_season(minutes, "2025-2026", 450) == "2024-2025"  # too few in 2025/26
+    assert filters.preferred_season(minutes, "2023-2024", 450) == "2023-2024"  # enough there
+    assert filters.preferred_season(minutes, None, 450) == "2024-2025"
+    assert filters.preferred_season({"2025-2026": 100.0}, None, 450) == "2025-2026"  # none has enough
+    assert filters.preferred_season({}, None, 450) is None

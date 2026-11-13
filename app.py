@@ -55,20 +55,21 @@ def main() -> None:
                             "Check the Google Cloud credentials and try again.", exc)
         return
 
-    filtered = picker.sidebar(index)
-    if filtered.empty:
+    scoped, chosen = picker.sidebar(index)
+    if scoped.empty:
         st.markdown(theme.empty_state_html(
             "No players match these filters",
-            "Try another season, or set League and Club back to All in the sidebar."),
+            "Set League and Club back to All in the sidebar."),
             unsafe_allow_html=True)
         return
 
-    player = picker.search(filtered)
+    player = picker.search(scoped)
     if player is None:
-        picker.onboarding(filtered)
+        in_season = scoped if chosen is None else scoped[scoped["Season"] == chosen]
+        picker.onboarding(in_season if not in_season.empty else scoped)
         return
 
-    season = picker.season_switch(filtered, player)
+    season = picker.season_switch(scoped, player, chosen)
     try:
         row = data.player_stats(bq, player, season)
     except Exception as exc:  # noqa: BLE001

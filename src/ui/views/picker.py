@@ -9,6 +9,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from src.similarity import MIN_MINUTES
 from src.ui import filters, state, stats, theme
 
 EXAMPLE_PLAYERS = ("Mohamed Salah", "Kevin De Bruyne", "Erling Haaland", "Virgil van Dijk")
@@ -29,7 +30,10 @@ def _season_label(value: str) -> str:
     return value if value == state.ALL_SEASONS else stats.season_option(value)
 
 
-def sidebar(index: pd.DataFrame) -> pd.DataFrame:
+def sidebar(index: pd.DataFrame) -> tuple[pd.DataFrame, str | None]:
+    """(scoped, season): the index narrowed by league and club only, every season
+    kept so the search never hides a player, and the sidebar season (None for All),
+    which picks the season a player opens in."""
     seasons = filters.seasons_desc(index)
     _init(state.SEASON, filters.default_season(seasons) or state.ALL_SEASONS)
     _init(state.LEAGUE, state.ALL_LEAGUES)
@@ -52,14 +56,14 @@ def sidebar(index: pd.DataFrame) -> pd.DataFrame:
         st.markdown(theme.section_label_html("Club"), unsafe_allow_html=True)
         club = st.selectbox("Club", clubs, key=state.CLUB, label_visibility="collapsed")
 
-        filtered = filters.filter_index(
-            index,
-            season=None if season == state.ALL_SEASONS else season,
-            league=league_filter,
-            club=None if club == state.ALL_CLUBS else club,
-        )
-        st.caption(f"Showing {filtered['Player'].nunique():,} players")
-    return filtered
+        scoped = filters.filter_index(
+            index, league=league_filter, club=None if club == state.ALL_CLUBS else club)
+        chosen = None if season == state.ALL_SEASONS else season
+        in_season = scoped if chosen is None else scoped[scoped["Season"] == chosen]
+        where = "" if chosen is None else f" in {stats.season_option(chosen)}"
+        st.caption(f"{in_season['Player'].nunique():,} players{where}. "
+                   "The search covers every season.")
+    return scoped, chosen
 
 
 def search(filtered: pd.DataFrame) -> str | None:
@@ -85,17 +89,23 @@ def onboarding(filtered: pd.DataFrame) -> None:
                   on_click=_choose, args=(example,))
 
 
-def season_switch(filtered: pd.DataFrame, player: str) -> str | None:
-    """The season to show. Defaults to the player's latest season in view and
-    stays put across reruns, until a different player is picked. The
-    switcher lists every season in view, newest first."""
-    seasons = filters.player_seasons(filtered, player)
+def season_switch(scoped: pd.DataFrame, player: str, preferred: str | None = None) -> str | None:
+    """The season to show. A newly picked player opens in the sidebar season when
+    he has MIN_MINUTES there, else in his most recent season that has them
+    (filters.preferred_season); it then stays put across reruns until another
+    player or sidebar season is picked. The switcher lists every season he has
+    in the league and club filters, newest first."""
+    seasons = filters.player_seasons(scoped, player)
     if not seasons:
         return None
+    rows = scoped[scoped["Player"] == player]
+    minutes = rows.groupby("Season")["minutes"].max().to_dict()
     if (st.session_state.get(state.SWITCH_FOR) != player
+            or st.session_state.get(state.SWITCH_PREF) != preferred
             or st.session_state.get(state.SWITCH) not in seasons):
-        st.session_state[state.SWITCH] = seasons[-1]
+        st.session_state[state.SWITCH] = filters.preferred_season(minutes, preferred, MIN_MINUTES)
         st.session_state[state.SWITCH_FOR] = player
+        st.session_state[state.SWITCH_PREF] = preferred
     if len(seasons) == 1:
         return seasons[0]
     st.markdown(theme.section_label_html("Season"), unsafe_allow_html=True)

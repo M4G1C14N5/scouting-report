@@ -14,6 +14,7 @@ CLUB = "f_club"              # sidebar club selectbox
 PLAYER = "player_pick"       # player search selectbox
 SWITCH = "season_switch"     # per-player season selectbox
 SWITCH_FOR = "_switch_for"   # which player SWITCH was last set for
+SWITCH_PREF = "_switch_pref"  # the sidebar season SWITCH was last chosen for
 COMPARE = "profile_compare"  # Profile tab: "Compare with" selectbox (same league or all leagues)
 SIMILAR_MODE = "similar_mode"  # Similar tab: "Compare on" selectbox
 SIMILAR_TABLE = "similar_table"
@@ -31,4 +32,5 @@ def goto(player: str, season: str) -> None:
     st.session_state[PLAYER] = player
     st.session_state[SWITCH] = season
     st.session_state[SWITCH_FOR] = player
+    st.session_state[SWITCH_PREF] = season
     st.session_state.pop(SIMILAR_TABLE, None)  # a new player starts with no row selected
