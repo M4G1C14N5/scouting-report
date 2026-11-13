@@ -67,9 +67,16 @@ def player_stats(player: str, season: str) -> pd.Series:
     raise ValueError(f"Player '{player}' not found for season '{season}'.")
 
 
+def _in_group(frame: pd.DataFrame, group: str) -> pd.Series:
+    """group, or "OUT" (src.similarity.OUTFIELD) for every outfield group."""
+    if group == "OUT":
+        return frame["position_group"].isin(["ATT", "MID", "DEF"])
+    return frame["position_group"] == group
+
+
 def position_pool(group: str, season: str) -> pd.DataFrame:
     frame = goalkeeper_frame() if group == "GK" else outfield_frame()
-    pool = frame[(frame["position_group"] == group) & (frame["Season"] == season)
+    pool = frame[_in_group(frame, group) & (frame["Season"] == season)
                  & (frame["minutes"] >= 450)]
     return pool.reset_index(drop=True)
 
@@ -174,6 +181,6 @@ def new_position_pool(group: str, season: str, paired: bool = False) -> pd.DataF
         from src.similarity import paired_season
 
         seasons.add(paired_season(season))
-    pool = frame[(frame["position_group"] == group) & frame["Season"].isin(seasons)
+    pool = frame[_in_group(frame, group) & frame["Season"].isin(seasons)
                  & (frame["minutes"] >= 450)]
     return pool.reset_index(drop=True)

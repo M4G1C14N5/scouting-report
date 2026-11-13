@@ -460,7 +460,53 @@ def test_profile_europe_player_shows_exactly_the_europe_set():
     assert len(at.get("plotly_chart")) == 8
     assert "Big five only" not in md
     assert "Offsides" not in " ".join(_bar_labels(at))
-    assert at.selectbox(key="profile_compare").options == ["Same league", "All leagues in this season"]
+    assert at.selectbox(key="profile_compare").options == [
+        "Same league", "Top 5 leagues", "All leagues in this season"]
+
+
+def profile_roles_script(player: str, season: str, scope: str | None, position: str | None) -> None:
+    """A newer-season outfield pool (every group) with roles: forwards are strikers,
+    midfielders central mids, defenders centre-backs; "Two Forward 0" is a winger."""
+    import streamlit as st
+
+    from src.ui import state
+    from src.ui.views import profile
+    from tests import fakes
+
+    pool = fakes.new_position_pool("OUT", season)
+    roles = {"ATT": "ST", "MID": "CM", "DEF": "CB"}
+    pool["main_role"] = pool["position_group"].map(roles)
+    pool.loc[pool["Player"] == "Two Forward 0", "main_role"] = "AMW"
+    pool.loc[pool["Player"].str.startswith("Liga Forward"), "main_role"] = "AMW"
+    if scope is not None:
+        st.session_state[state.COMPARE] = scope
+        st.session_state["_profile_compare_for"] = (player, season)
+    if position is not None:
+        st.session_state[state.PROFILE_POSITION] = position
+        st.session_state["_profile_position_for"] = (player, season)
+    profile.render(pool, player, season, "ATT")
+
+
+def test_profile_defaults_to_his_role_and_offers_every_other_role():
+    at = _run(profile_roles_script, "Two Forward 0", fakes.EUROPE_SEASON, None, None)
+    control = at.selectbox(key="profile_position")
+    assert control.options == ["Strikers", "Attacking mids and wingers (his position)",
+                               "Central and defensive mids", "Fullbacks and wing-backs", "Centre-backs"]
+    assert control.value == "AMW"
+    assert "Ranked against 1 attacking mid or winger in League Two 2025/26" in _captions(at)
+
+
+def test_profile_ranks_him_against_another_position_and_the_top_five():
+    # a League Two winger ranked against the big-five strikers
+    at = _run(profile_roles_script, "Two Forward 0", fakes.EUROPE_SEASON, "Top 5 leagues", "ST")
+    captions = _captions(at)
+    assert "Ranked against 8 strikers in the top 5 leagues in 2025/26" in captions
+    assert not at.exception and len(at.get("plotly_chart")) > 0
+
+
+def test_profile_position_with_nobody_in_the_pool_says_so():
+    at = _run(profile_roles_script, "Two Forward 0", fakes.EUROPE_SEASON, "Top 5 leagues", "CB")
+    assert "No one to rank against" in _markdown(at) and not at.exception
 
 
 def test_profile_missing_metric_shows_n_a_instead_of_disappearing():

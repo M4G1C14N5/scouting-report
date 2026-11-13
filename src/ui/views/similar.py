@@ -165,8 +165,9 @@ def _compare(pool: pd.DataFrame | None, row, other: pd.Series, group: str, mode:
         return
     family = metrics.family_of(row.get("Source"))
     if family == metrics.FBREF:
-        a_rows = build.profile_rows(pool, a.iloc[0], group)
-        b_rows = build.profile_rows(pool, b.iloc[0], group)
+        same = pool[pool["position_group"] == group]  # the pool may hold every outfield group
+        a_rows = build.profile_rows(same, a.iloc[0], group)
+        b_rows = build.profile_rows(same, b.iloc[0], group)
     else:
         # percentiles on the mode's stats, within the mode's pool
         ranked = similarity.mode_pool(pool, a.iloc[0], mode, same_group=not role_aware)

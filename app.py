@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import streamlit as st
 
+from src.similarity import OUTFIELD
 from src.ui import data, stats, theme
 from src.ui.views import header, picker, profile, similar, stats_tab
 
@@ -80,7 +81,9 @@ def main() -> None:
 
     pool, pool_error = None, None
     try:
-        pool = data.position_pool(bq, group, season)  # fetched once, shared by two tabs
+        # every outfield position, so the Profile tab can rank him against any of them;
+        # fetched once, shared by two tabs
+        pool = data.position_pool(bq, group if group == "GK" else OUTFIELD, season)
     except Exception as exc:  # noqa: BLE001
         pool_error = exc
 
